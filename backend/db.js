@@ -30,7 +30,23 @@ export async function initDb() {
       data JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
+}
+
+export async function getUserByUsername(username) {
+  const { rows } = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+  return rows[0] || null;
+}
+
+export async function createUser(username, passwordHash) {
+  await pool.query("INSERT INTO users (username, password_hash) VALUES ($1, $2)", [username, passwordHash]);
 }
 
 export async function listCollection(collection) {

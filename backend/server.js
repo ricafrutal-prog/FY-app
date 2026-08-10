@@ -2,8 +2,10 @@ import express from "express";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
+import bcrypt from "bcryptjs";
 import { fileURLToPath } from "url";
-import { initDb, listCollection, upsertItem, deleteItem, getList, setList } from "./db.js";
+import { initDb, listCollection, upsertItem, deleteItem, getList, setList, getUserByUsername } from "./db.js";
+import { signToken, requireAuth } from "./auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -32,36 +34,48 @@ const asyncRoute = (fn) => (req, res) => fn(req, res).catch((err) => {
   res.status(500).json({ error: "Error del servidor", detalle: err.message });
 });
 
+// ---- Login: recibe usuario/contraseña, regresa un token si son correctos ----
+app.post("/api/auth/login", asyncRoute(async (req, res) => {
+  const { username, password } = req.body || {};
+  if (!username || !password) return res.status(400).json({ error: "Falta usuario o contraseña" });
+  const user = await getUserByUsername(username);
+  if (!user) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+  const ok = await bcrypt.compare(password, user.password_hash);
+  if (!ok) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+  res.json({ token: signToken(user), username: user.username });
+}));
+
 // ---- Colecciones (arreglos de objetos con id): recepciones, conteos, borradores_conteo, salidas ----
-app.get("/api/collections/:name", checkCollection, asyncRoute(async (req, res) => {
+// requireAuth va primero: sin sesión válida, ni siquiera llega a checkCollection.
+app.get("/api/collections/:name", requireAuth, checkCollection, asyncRoute(async (req, res) => {
   res.json(await listCollection(req.params.name));
 }));
 
-app.post("/api/collections/:name", checkCollection, asyncRoute(async (req, res) => {
+app.post("/api/collections/:name", requireAuth, checkCollection, asyncRoute(async (req, res) => {
   const item = req.body;
   if (item == null || item.id == null) return res.status(400).json({ error: "El item necesita un id" });
   await upsertItem(req.params.name, item.id, item);
   res.status(201).json(item);
 }));
 
-app.put("/api/collections/:name/:id", checkCollection, asyncRoute(async (req, res) => {
+app.put("/api/collections/:name/:id", requireAuth, checkCollection, asyncRoute(async (req, res) => {
   const item = req.body;
   await upsertItem(req.params.name, req.params.id, item);
   res.json(item);
 }));
 
-app.delete("/api/collections/:name/:id", checkCollection, asyncRoute(async (req, res) => {
+app.delete("/api/collections/:name/:id", requireAuth, checkCollection, asyncRoute(async (req, res) => {
   await deleteItem(req.params.name, req.params.id);
   res.status(204).end();
 }));
 
 // ---- Listas simples (arreglos de strings): sucursales y catálogos de nombres ----
-app.get("/api/lists/:name", checkList, asyncRoute(async (req, res) => {
+app.get("/api/lists/:name", requireAuth, checkList, asyncRoute(async (req, res) => {
   const data = await getList(req.params.name);
   res.json(data ?? []);
 }));
 
-app.put("/api/lists/:name", checkList, asyncRoute(async (req, res) => {
+app.put("/api/lists/:name", requireAuth, checkList, asyncRoute(async (req, res) => {
   if (!Array.isArray(req.body)) return res.status(400).json({ error: "Se esperaba un arreglo" });
   await setList(req.params.name, req.body);
   res.json(req.body);

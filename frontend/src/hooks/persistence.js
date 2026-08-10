@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "../auth";
 
 /**
  * Reemplaza a useState([]) para un arreglo de objetos con "id" (recepciones,
@@ -15,7 +16,7 @@ export function usePersistedCollection(name) {
 
   useEffect(() => {
     let cancelado = false;
-    fetch(`/api/collections/${name}`)
+    apiFetch(`/api/collections/${name}`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelado) return;
@@ -45,7 +46,7 @@ function syncCollectionDiff(name, prev, next) {
 
   prevById.forEach((_, id) => {
     if (!nextIds.has(id)) {
-      fetch(`/api/collections/${name}/${id}`, { method: "DELETE" }).catch((err) =>
+      apiFetch(`/api/collections/${name}/${id}`, { method: "DELETE" }).catch((err) =>
         console.error(`No se pudo borrar de "${name}":`, err)
       );
     }
@@ -56,7 +57,7 @@ function syncCollectionDiff(name, prev, next) {
     if (before === item) return; // misma referencia, no cambió
     const method = before ? "PUT" : "POST";
     const url = before ? `/api/collections/${name}/${item.id}` : `/api/collections/${name}`;
-    fetch(url, {
+    apiFetch(url, {
       method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(item),
@@ -75,7 +76,7 @@ export function usePersistedList(name, fallback) {
 
   useEffect(() => {
     let cancelado = false;
-    fetch(`/api/lists/${name}`)
+    apiFetch(`/api/lists/${name}`)
       .then((r) => r.json())
       .then((data) => {
         if (cancelado) return;
@@ -83,7 +84,7 @@ export function usePersistedList(name, fallback) {
           setItemsRaw(data);
         } else {
           setItemsRaw(fallback);
-          fetch(`/api/lists/${name}`, {
+          apiFetch(`/api/lists/${name}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(fallback),
@@ -98,7 +99,7 @@ export function usePersistedList(name, fallback) {
   const setItems = (updater) => {
     setItemsRaw((prev) => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      fetch(`/api/lists/${name}`, {
+      apiFetch(`/api/lists/${name}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(next),

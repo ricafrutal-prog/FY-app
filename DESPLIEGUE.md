@@ -3,6 +3,11 @@
 Son 3 cuentas gratuitas y ningún dato de tarjeta. Cada una toma 2-3 minutos. Sigue el
 orden — cada paso usa algo del anterior.
 
+**Los pasos 1-4 ya están hechos** (Neon, GitHub y Render ya están conectados y la app ya
+está publicada). Los dejo aquí de referencia. Si necesitas agregar más adelante otro
+servicio o repetir el proceso en otra cuenta, sirven igual. Lo nuevo es el **paso 5**, para
+que la app pida usuario y contraseña.
+
 ---
 
 ## 1. Base de datos — Neon (Postgres gratis)
@@ -64,7 +69,40 @@ orden — cada paso usa algo del anterior.
 de eso va normal. Es una limitación del plan gratis — si en algún momento estorba, se quita
 pasando a un plan pagado (~$7 USD/mes).
 
----
+## 5. Login — usuario y contraseña
 
-Cuando tengas la cuenta de Neon lista y el connection string a la mano, dímelo y seguimos con
-el resto juntos — puedo ir revisando cada paso contigo.
+Ahora toda la plataforma pide iniciar sesión antes de mostrar nada. Sin cuenta, nadie entra ni
+ve datos, aunque tenga el link.
+
+### Instalar lo nuevo y crear tu primer usuario
+
+1. Terminal → `cd ` + arrastra la carpeta `app/backend` → Enter.
+2. `npm install` (instala las piezas nuevas de login).
+3. Crea tu usuario — cambia `ricardo` y la contraseña por lo que quieras usar (mínimo 6
+   caracteres):
+   ```bash
+   npm run create-user -- ricardo unaContraseñaSegura123
+   ```
+   Repite este comando (con otro nombre de usuario) por cada persona que necesite entrar.
+   Como la base de datos es la misma (Neon) tanto en tu compu como en la app publicada, con
+   crear el usuario una vez ya sirve para las dos.
+4. Prueba en `http://localhost:5173` (con `npm run dev` corriendo) — ahora debe pedirte
+   usuario y contraseña antes de dejarte entrar.
+
+### Publicar el cambio
+
+5. Desde la carpeta `app`, en Terminal:
+   ```bash
+   git add -A
+   git commit -m "Agregar login"
+   git push
+   ```
+6. Render va a volver a compilar solo (unos minutos). Cuando termine, la URL pública también
+   va a pedir usuario y contraseña.
+7. Si después de unos minutos la URL pública **no** pide login todavía, entra al dashboard de
+   Render → tu servicio → **Manual Deploy** → **Deploy latest commit**, para forzar que tome
+   los cambios.
+
+Nadie más puede crear su propio usuario desde la pantalla de login (a propósito, para que no
+se registre cualquiera) — los usuarios solo se crean con el comando `npm run create-user` de
+arriba, que solo tú puedes correr.

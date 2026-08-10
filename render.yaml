@@ -8,5 +8,7 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: JWT_SECRET
+        generateValue: true
       - key: NODE_VERSION
         value: 20.11.1
