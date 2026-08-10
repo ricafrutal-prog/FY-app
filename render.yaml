@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: frutal-yogurt-plataforma
+    env: node
+    plan: free
+    buildCommand: npm run install:all && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: NODE_VERSION
+        value: 20.11.1
