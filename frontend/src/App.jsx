@@ -4109,16 +4109,32 @@ function AISalidaRevision({ datos, onAtras, onFinalizar, soloLectura, onCerrar }
 
 /* Tarjeta de solo lectura para Visualización — mismo cálculo que Entrega de Efectivo,
    más el desglose de lo ya contado (filtrable por fecha/mes y por sucursal). */
+// Un conteo cuenta hacia el saldo disponible en cuanto ya se le dio "Finalizar" y
+// tiene un físico consolidado capturado — sin importar si cuadró o no. Que haya
+// quedado una diferencia sin explicar no significa que ese efectivo no exista; solo
+// significa que hay que investigar por qué no coincide con lo teórico.
+const aiCuentaHaciaSaldo = (c) => c.estado === "finalizado" || c.estado === "revision";
+const aiTotalTeoricoConteo = (c) => c.bloques.reduce((s, b) => s + aiTotalConteo(b.cantidades), 0);
+const aiDiferenciaConteo = (c) => Math.round((aiTotalConteo(c.consolidado) + (Number(c.salidaCentavos) || 0) - aiTotalTeoricoConteo(c)) * 100) / 100;
+
 function AISaldoEfectivo({ conteos, salidas, onSalir }) {
-  const contado = conteos.filter((c) => c.estado === "finalizado").reduce((s, c) => s + aiTotalConteo(c.consolidado), 0);
+  const contado = conteos.filter(aiCuentaHaciaSaldo).reduce((s, c) => s + aiTotalConteo(c.consolidado), 0);
   const entregado = salidas.reduce((s, x) => s + (Number(x.monto) || 0), 0);
   const disponible = Math.round((contado - entregado) * 100) / 100;
+
+  /* Conteos en revisión: ya cuentan en el saldo, pero su diferencia sigue sin
+     explicarse — se listan aparte para no perderles la pista. */
+  const enRevision = useMemo(
+    () => [...conteos.filter((c) => c.estado === "revision")].sort((a, b) => b.fecha.localeCompare(a.fecha)),
+    [conteos]
+  );
+  const totalDiferenciasSinResolver = Math.round(enRevision.reduce((s, c) => s + aiDiferenciaConteo(c), 0) * 100) / 100;
 
   /* Una línea por corte (bloque) de cada conteo ya finalizado — es lo único que trae
      sucursal y fecha propias; el consolidado físico es un solo total sin desglose. */
   const lineas = useMemo(() => {
     const out = [];
-    conteos.filter((c) => c.estado === "finalizado").forEach((c) => {
+    conteos.filter(aiCuentaHaciaSaldo).forEach((c) => {
       c.bloques.forEach((b) => {
         const iso = aiCorteISO(b.fecha);
         if (!iso) return;
@@ -4194,6 +4210,36 @@ function AISaldoEfectivo({ conteos, salidas, onSalir }) {
           <div><div>Ya entregado</div><strong style={{ color: T.ink, fontSize: 14 }}>− {aiMoney(entregado)}</strong></div>
         </div>
       </div>
+
+      {enRevision.length > 0 && (
+        <div style={{ ...sx.repCard, marginBottom: 16, borderColor: `${T.bad}44` }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Diferencias sin resolver</div>
+              <strong style={{ fontSize: 24, color: T.bad }}>
+                {totalDiferenciasSinResolver < 0 ? "Faltan " : totalDiferenciasSinResolver > 0 ? "Sobran " : ""}
+                {aiMoney(Math.abs(totalDiferenciasSinResolver))}
+              </strong>
+              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3, maxWidth: 480 }}>
+                Ya están sumadas al saldo disponible de arriba — esto es solo para no perderles la pista
+                mientras alguien investiga por qué no cuadraron. {enRevision.length} conteo{enRevision.length === 1 ? "" : "s"} en revisión.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "grid", gap: 4, marginTop: 12 }}>
+            {enRevision.map((c) => {
+              const d = aiDiferenciaConteo(c);
+              return (
+                <div key={c.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "7px 0", borderTop: `1px solid ${T.lineSoft}` }}>
+                  <span style={{ color: T.muted }}>{c.fecha}</span>
+                  <span style={{ flex: 1 }}>contó {c.contador}</span>
+                  <strong style={{ color: T.bad }}>{d < 0 ? "Faltan " : "Sobran "}{aiMoney(Math.abs(d))}</strong>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={sx.sectionTitle}>Conteo acumulado</div>
       <div style={{ ...sx.repCard, display: "flex", gap: 14, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
@@ -4274,7 +4320,7 @@ function AISalidas({ salidas, setSalidas, conteos, onSalir }) {
   const folioSiguiente = salidas.filter((s) => s.estado === "finalizado").length + 1;
 
   const hayEnProceso = salidas.some((s) => s.estado === "proceso");
-  const contado = conteos.filter((c) => c.estado === "finalizado").reduce((s, c) => s + aiTotalConteo(c.consolidado), 0);
+  const contado = conteos.filter(aiCuentaHaciaSaldo).reduce((s, c) => s + aiTotalConteo(c.consolidado), 0);
   const entregado = salidas.reduce((s, x) => s + (Number(x.monto) || 0), 0);
   const disponible = Math.round((contado - entregado) * 100) / 100;
 
