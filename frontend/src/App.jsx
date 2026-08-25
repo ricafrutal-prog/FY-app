@@ -507,7 +507,7 @@ const DEPTOS = [
   { key: "marketing", nombre: "Marketing", iconName: "Megaphone", metricas: [["Campañas activas", "4"], ["Alcance del mes", "68 mil"]] },
   { key: "atencion_cliente", nombre: "Atención al Cliente", iconName: "Headphones", metricas: [["Casos abiertos", "18"], ["Satisfacción", "4.5 / 5"]] },
   { key: "auditoria", nombre: "Auditoría Presencial", iconName: "ClipboardCheck", metricas: [["Auditorías del mes", "42"], ["Cumplimiento promedio", "87%"]] },
-  { key: "auditoria_interna", nombre: "Auditoría Interna", iconName: "ShieldCheck" },
+  { key: "auditoria_interna", nombre: "Cortes", iconName: "ShieldCheck" },
 ];
 
 /* ===== Datos del departamento de Franquicias ===== */
@@ -2553,7 +2553,7 @@ function AIHome({ onEnter }) {
   const tag = { display: "inline-block", marginTop: 8, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 9px", borderRadius: 99 };
   return (
     <div>
-      <div style={sx.h1row}><h1 style={sx.h1}>Auditoría Interna</h1><span style={{ fontSize: 12, color: T.muted }}>control de efectivo, cortes y conciliaciones</span></div>
+      <div style={sx.h1row}><h1 style={sx.h1}>Cortes</h1><span style={{ fontSize: 12, color: T.muted }}>recepción, conteo, entrega y auditoría de efectivo</span></div>
 
       <div style={sx.sectionTitle}>Captura</div>
       <div style={{ ...sx.cards4, marginBottom: 30 }}>
@@ -3196,7 +3196,7 @@ function AICierreSemanal({ recepciones, sucursales, onSalir }) {
   const hayDatos = recepciones.some((r) => r.cortes.some((c) => aiFechaCompleta(c.fecha)));
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}><h1 style={sx.h1}>Historial cortes</h1><span style={{ fontSize: 12, color: T.muted }}>recibidos y por recibir</span></div>
       {hayDatos
         ? <AIRecepcionResumen recepciones={recepciones} sucursales={sucursales} />
@@ -3299,7 +3299,7 @@ function AIRecepcion({ recepciones, setRecepciones, onSalir, sucursales }) {
 
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}>
         <h1 style={sx.h1}>Recepción de Cortes</h1>
         {paso === "lista" && <AIBotonNuevo label="Nueva recepción" enProceso={recepciones.some((r) => !r.finalizado)} mensaje="Ya existe una recepción en proceso — termínala antes de iniciar otra." onClick={abrirNueva} />}
@@ -3842,7 +3842,7 @@ function AIConteo({ recepciones, setRecepciones, conteos, setConteos, borradores
 
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}>
         <h1 style={sx.h1}>Conteo de Cortes</h1>
         {paso === "lista" && <AIBotonNuevo label="Nuevo conteo" enProceso={hayEnProceso} mensaje="Ya existe un conteo en proceso — termínalo antes de iniciar otro." onClick={abrirNuevo} />}
@@ -4197,7 +4197,7 @@ function AISaldoEfectivo({ conteos, salidas, onSalir }) {
 
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}><h1 style={sx.h1}>Saldo de Efectivo</h1><span style={{ fontSize: 12, color: T.muted }}>contado en cortes, entregado y disponible</span></div>
 
       <div style={{ ...sx.repCard, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16 }}>
@@ -4341,7 +4341,7 @@ function AISalidas({ salidas, setSalidas, conteos, onSalir }) {
 
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}>
         <h1 style={sx.h1}>Entrega de Efectivo</h1>
         {paso === "lista" && <AIBotonNuevo label="Nueva entrega" enProceso={hayEnProceso} mensaje="Ya existe una entrega en proceso — termínala antes de iniciar otra." onClick={abrirNueva} />}
@@ -4436,7 +4436,7 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, onSalir }) {
 
   return (
     <div>
-      <button onClick={onSalir} style={sx.back}>‹ Auditoría Interna</button>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
       <div style={sx.h1row}><h1 style={sx.h1}>Configuración</h1></div>
 
       <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, maxWidth: 520 }}>
@@ -4476,7 +4476,7 @@ function AuditoriaInterna() {
     <>
       <header style={sx.header} className="noprint">
         <div>
-          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Auditoría Interna</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Cortes</div>
           <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{panel ? tituloPanel : "Panel principal"}</div>
         </div>
       </header>
