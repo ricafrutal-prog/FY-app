@@ -16,6 +16,14 @@ export const pool = new Pool({
   ssl: { rejectUnauthorized: false },
 });
 
+// Neon cierra las conexiones que llevan un rato sin usarse. Sin este
+// "listener", ese cierre tumbaba TODO el servidor (Node lo trata como un
+// error no atendido) — con esto solo se registra y el servidor sigue vivo;
+// la siguiente consulta simplemente abre una conexión nueva sola.
+pool.on("error", (err) => {
+  console.error("Aviso: se perdió una conexión inactiva con la base de datos (normal si llevaba rato sin uso) —", err.message);
+});
+
 export async function initDb() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collection_items (
@@ -37,6 +45,14 @@ export async function initDb() {
       password_hash TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT now()
     );
+    -- "role": 'admin' ve toda la plataforma (como hoy). 'sucursal' solo ve el
+    -- apartado de captura de su sucursal — se agregan con ALTER porque la
+    -- tabla "users" ya existe en producción con datos reales.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin';
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS sucursal TEXT;
+    -- Preferencias de personalización (tema, tipografía, fondo, densidad) —
+    -- se guardan por cuenta para que viajen entre dispositivos.
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS preferencias JSONB NOT NULL DEFAULT '{}'::jsonb;
   `);
 }
 
@@ -45,8 +61,36 @@ export async function getUserByUsername(username) {
   return rows[0] || null;
 }
 
-export async function createUser(username, passwordHash) {
-  await pool.query("INSERT INTO users (username, password_hash) VALUES ($1, $2)", [username, passwordHash]);
+export async function updatePreferencias(userId, prefs) {
+  const { rows } = await pool.query(
+    "UPDATE users SET preferencias = $2 WHERE id = $1 RETURNING preferencias",
+    [userId, JSON.stringify(prefs)]
+  );
+  return rows[0]?.preferencias || {};
+}
+
+export async function createUser(username, passwordHash, role = "admin", sucursal = null) {
+  await pool.query(
+    "INSERT INTO users (username, password_hash, role, sucursal) VALUES ($1, $2, $3, $4)",
+    [username, passwordHash, role, sucursal]
+  );
+}
+
+// Las contraseñas se guardan con hash (bcrypt) — no hay forma de "ver" la
+// contraseña de alguien, ni yo ni nadie con acceso a la base de datos puede
+// recuperarla. Lo único que se puede hacer si se les olvida es ponerle una
+// nueva (scripts/reset-password.js usa esto).
+export async function setPasswordHash(username, passwordHash) {
+  const { rows } = await pool.query(
+    "UPDATE users SET password_hash = $2 WHERE username = $1 RETURNING username, role, sucursal",
+    [username, passwordHash]
+  );
+  return rows[0] || null;
+}
+
+export async function listUsers() {
+  const { rows } = await pool.query("SELECT username, role, sucursal, created_at FROM users ORDER BY sucursal NULLS FIRST, username");
+  return rows;
 }
 
 export async function listCollection(collection) {
@@ -55,6 +99,14 @@ export async function listCollection(collection) {
     [collection]
   );
   return rows.map((r) => r.data);
+}
+
+export async function getItem(collection, id) {
+  const { rows } = await pool.query(
+    "SELECT data FROM collection_items WHERE collection = $1 AND id = $2",
+    [collection, String(id)]
+  );
+  return rows[0]?.data || null;
 }
 
 export async function upsertItem(collection, id, item) {

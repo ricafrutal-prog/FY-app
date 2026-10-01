@@ -9,9 +9,11 @@ if (!SECRET) {
 }
 
 export function signToken(user) {
-  return jwt.sign({ sub: user.id, username: user.username }, SECRET || "inseguro-solo-para-pruebas", {
-    expiresIn: "30d",
-  });
+  return jwt.sign(
+    { sub: user.id, username: user.username, role: user.role || "admin", sucursal: user.sucursal || null },
+    SECRET || "inseguro-solo-para-pruebas",
+    { expiresIn: "30d" }
+  );
 }
 
 // Protege una ruta: exige "Authorization: Bearer <token>" válido.
@@ -25,4 +27,11 @@ export function requireAuth(req, res, next) {
   } catch {
     res.status(401).json({ error: "Sesión inválida o expirada" });
   }
+}
+
+// Protege una ruta para que solo un usuario "admin" pueda entrar — se usa
+// después de requireAuth. Los usuarios "sucursal" reciben 403.
+export function requireAdmin(req, res, next) {
+  if (req.user?.role !== "admin") return res.status(403).json({ error: "No tienes permiso para esto" });
+  next();
 }

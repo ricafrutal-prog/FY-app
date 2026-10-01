@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import * as Icons from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList } from "./hooks/persistence";
+import { apiFetch, getUsername } from "./auth";
+import AccountMenu from "./AccountMenu.jsx";
 
 const LOGO = "./assets/logo.png";
 
@@ -196,6 +198,11 @@ const SUCURSALES = [
   "Estación Sendero 1",
   "Estación Sendero 2",
   "Estación San Nicolás",
+  "Estancia",
+  "Terreno",
+  "S. Apodaca 2",
+  "S. Apodaca 3",
+  "Estación San Bernabé",
 ];
 
 /* ===== Datos compartidos que alimentan el apartado de Finanzas =====
@@ -619,7 +626,7 @@ function fqBloqueo(f) { return f.cobranza.compras && f.cobranza.compras.e === "v
 
 /* ============================================================ */
 
-export default function App() {
+export default function App({ onCerrarSesion }) {
   const [equipos, setEquipos] = useState(buildEquipos);
   const [reportes, setReportes] = useState(() => buildSeed(equipos));
   const [rol, setRol] = useState("mantenimiento"); // sucursal | mantenimiento
@@ -770,20 +777,20 @@ export default function App() {
   const subtitulo = rol === "sucursal" ? "Reportar" : enHome ? "Todas las áreas" : (areaMeta ? areaMeta.nombre : "");
 
   return (
-    <div style={{ minHeight: "100%", display: "flex", background: T.paper, color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
+    <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={setModo} />
-      {modo === "tareas" ? <Tareas /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} /> : (<>
+      {modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={setDepto} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => setDepto(k)} mtto={mttoResumen} />}
-      {depto === "franquicias" && <Franquicias />}
-      {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} />}
-      {depto === "sucursales_propias" && <SucursalesPropias />}
-      {depto === "inventarios" && <Inventarios inv={inv} setInv={setInv} invMes={invMes} setInvMes={setInvMes} />}
-      {depto === "video_vigilancia" && <AuditoriasRemotas />}
-      {depto === "remodelaciones" && <Remodelaciones />}
-      {depto === "auditoria_interna" && <AuditoriaInterna />}
+      {depto === "franquicias" && <Franquicias onCerrarSesion={onCerrarSesion} />}
+      {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} onCerrarSesion={onCerrarSesion} />}
+      {depto === "sucursales_propias" && <SucursalesPropias onCerrarSesion={onCerrarSesion} />}
+      {depto === "inventarios" && <Inventarios inv={inv} setInv={setInv} invMes={invMes} setInvMes={setInvMes} onCerrarSesion={onCerrarSesion} />}
+      {depto === "video_vigilancia" && <AuditoriasRemotas onCerrarSesion={onCerrarSesion} />}
+      {depto === "remodelaciones" && <Remodelaciones onCerrarSesion={onCerrarSesion} />}
+      {depto === "auditoria_interna" && <AuditoriaInterna onCerrarSesion={onCerrarSesion} />}
       {depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} />}
       {depto === "mantenimiento" && (<>
 
@@ -829,6 +836,7 @@ export default function App() {
               </button>
             );
           })}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
 
@@ -992,7 +1000,7 @@ function TareasSidebar({ vista, onPick, conRetraso, totalRepPend }) {
   );
 }
 
-function Tareas() {
+function Tareas({ onCerrarSesion }) {
   const [tareas, setTareas] = useState(TAREAS);
   const [vista, setVista] = useState("mias");
   const [repDepto, setRepDepto] = useState(null);
@@ -1044,11 +1052,14 @@ function Tareas() {
             <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Tareas y Reportes</div>
             <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{vista === "reportes" ? "Reportes por departamento" : vista === "asignadas" ? "Tareas que asigné" : "Mis tareas"}</div>
           </div>
-          {vista !== "reportes" && (
-            <button className="actbtn" onClick={() => setNueva(!nueva)} style={{ ...sx.actbtn, fontSize: 13, padding: "9px 18px", background: nueva ? T.ink : T.brand, color: "#fff", display: "inline-flex", alignItems: "center", gap: 7, boxShadow: nueva ? "none" : "0 2px 8px rgba(15,110,102,.35)" }}>
-              <Ico name={nueva ? "X" : "Plus"} size={16} color="#fff" />{nueva ? "Cancelar" : "Nueva tarea"}
-            </button>
-          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {vista !== "reportes" && (
+              <button className="actbtn" onClick={() => setNueva(!nueva)} style={{ ...sx.actbtn, fontSize: 13, padding: "9px 18px", background: nueva ? T.ink : T.brand, color: "#fff", display: "inline-flex", alignItems: "center", gap: 7, boxShadow: nueva ? "none" : "0 2px 8px rgba(15,110,102,.35)" }}>
+                <Ico name={nueva ? "X" : "Plus"} size={16} color="#fff" />{nueva ? "Cancelar" : "Nueva tarea"}
+              </button>
+            )}
+            <AccountMenu onCerrarSesion={onCerrarSesion} />
+          </div>
         </header>
         <main style={sx.main}>
           {vista !== "reportes" && (
@@ -1787,7 +1798,7 @@ function SegControl({ seg, setSeg }) {
   );
 }
 
-function Finanzas({ cuadro, inv, invMes }) {
+function Finanzas({ cuadro, inv, invMes, onCerrarSesion }) {
   const [fsec, setFsec] = useState("tablero");
   const [seg, setSeg] = useState("Propias");
   const [erSel, setErSel] = useState("__cons__");
@@ -1823,6 +1834,7 @@ function Finanzas({ cuadro, inv, invMes }) {
             <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Finanzas</div>
             <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{secMeta ? secMeta.nombre : ""} · {seg.toLowerCase()}</div>
           </div>
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </header>
         <main style={sx.main}>
           {fsec === "tablero" && (
@@ -2179,7 +2191,7 @@ const REMO_PROY = [
   { suc: "Mitras", etapa: 1, ini: "2026-07-18", fin: "2026-10-01", resp: "Contratista externo", presu: 520000, ejercido: 40000 },
 ];
 
-function Remodelaciones() {
+function Remodelaciones({ onCerrarSesion }) {
   const [sec, setSec] = useState(null);
   const secs = [
     { key: "diagnostico", nombre: "Diagnóstico", iconName: "ClipboardCheck", desc: "Auditoría por sucursal → criticidad" },
@@ -2201,6 +2213,7 @@ function Remodelaciones() {
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {sec && <button onClick={() => setSec(null)} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Secciones</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
@@ -2539,7 +2552,7 @@ const AI_PANELES_CAPTURA = [
   { key: "recepcion", nombre: "Recepción de Cortes", icon: "Inbox", activo: true, desc: "Cortes recibidos de sucursal" },
   { key: "conteo", nombre: "Conteo de Cortes", icon: "Banknote", activo: true, desc: "Conteo físico, billete por billete" },
   { key: "salidas", nombre: "Entrega de Efectivo", icon: "HandCoins", activo: true, desc: "Salidas de efectivo (contadora y generales)" },
-  { key: "panel4", nombre: "Próximamente", icon: "CircleDashed", activo: false, desc: "Se definirá más adelante" },
+  { key: "auditoria", nombre: "Auditoría", icon: "Scale", activo: true, desc: "Cuadre de cortes contra ventas" },
 ];
 const AI_PANELES_VISUAL = [
   { key: "v1", nombre: "Historial cortes", icon: "CalendarClock", activo: true, desc: "Recibidos y por recibir" },
@@ -2548,8 +2561,14 @@ const AI_PANELES_VISUAL = [
 const AI_PANELES_CONFIG = [
   { key: "config", nombre: "Configuración", icon: "Settings", activo: true, desc: "Preferencias del auditor" },
 ];
+// Cuentas que entran a Gestión pero no deben ver "Cortes › Configuración"
+// (ahí se administran sucursales, terminaciones, responsables y productos —
+// se deja solo para quien da mantenimiento a la plataforma). Se checa por
+// username porque hoy no existe un rol intermedio entre "admin" y
+// "sucursal" — si hace falta para más gente, esto se vuelve una lista.
+const USUARIOS_SIN_CONFIG_CORTES = new Set(["jesus_segura"]);
 
-function AIHome({ onEnter }) {
+function AIHome({ onEnter, mostrarConfiguracion }) {
   const tag = { display: "inline-block", marginTop: 8, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 9px", borderRadius: 99 };
   return (
     <div>
@@ -2579,16 +2598,20 @@ function AIHome({ onEnter }) {
         ))}
       </div>
 
-      <div style={sx.sectionTitle}>Configuración</div>
-      <div style={sx.cards4}>
-        {AI_PANELES_CONFIG.map((p) => (
-          <button key={p.key} onClick={() => onEnter(p.key)} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
-            <Ico name={p.icon} size={30} strokeWidth={1.6} color={T.brand} />
-            <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
-            {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
-          </button>
-        ))}
-      </div>
+      {mostrarConfiguracion && (
+        <>
+          <div style={sx.sectionTitle}>Configuración</div>
+          <div style={sx.cards4}>
+            {AI_PANELES_CONFIG.map((p) => (
+              <button key={p.key} onClick={() => onEnter(p.key)} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
+                <Ico name={p.icon} size={30} strokeWidth={1.6} color={T.brand} />
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
+                {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -2622,37 +2645,39 @@ function exportarExcelConTitulo(titulo, columnas, filas) {
   XLSX.utils.book_append_sheet(wb, ws, "Datos");
   XLSX.writeFile(wb, `${aiSlugArchivo(titulo)}.xlsx`);
 }
+// El PDF descargable arma una tabla de verdad (encabezado, bordes, filas) en
+// vez de líneas de texto centrado, para que se vea igual que lo que sale al
+// usar "Imprimir" (que es el HTML real de la pantalla) — antes salían muy
+// distintos entre sí.
 function exportarPdfConTitulo(titulo, columnas, filas) {
-  const cargarJsPDF = () => new Promise((resolve, reject) => {
-    if (window.jspdf) return resolve();
+  const cargarScript = (src) => new Promise((resolve, reject) => {
     const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+    s.src = src;
     s.onload = () => resolve();
     s.onerror = () => reject(new Error("No se pudo cargar el generador de PDF"));
     document.body.appendChild(s);
   });
-  return cargarJsPDF().then(() => {
+  const autoTableListo = () => !!(window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API && typeof window.jspdf.jsPDF.API.autoTable === "function");
+  const cargarJsPDF = () => (window.jspdf ? Promise.resolve() : cargarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"));
+  const cargarAutoTable = () => (autoTableListo() ? Promise.resolve() : cargarScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"));
+  return cargarJsPDF().then(cargarAutoTable).then(() => {
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
-    const logoW = 28, logoH = logoW / 1.575;
-    doc.addImage(LOGO, "PNG", (pageWidth - logoW) / 2, 10, logoW, logoH);
+    const logoW = 26, logoH = logoW / 1.575;
+    doc.addImage(LOGO, "PNG", (pageWidth - logoW) / 2, 12, logoW, logoH);
     doc.setFontSize(13);
     doc.setFont(undefined, "bold");
-    doc.text(titulo, pageWidth / 2, 10 + logoH + 8, { align: "center" });
-    doc.setFont(undefined, "normal");
-    doc.setFontSize(9);
-    doc.setTextColor(120);
-    let y = 10 + logoH + 14;
-    const encabezado = columnas.map((c) => c.titulo).join("   ·   ");
-    doc.text(encabezado, pageWidth / 2, y, { align: "center" });
-    doc.setTextColor(20);
-    y += 8;
-    filas.forEach((f) => {
-      if (y > 280) { doc.addPage(); y = 16; }
-      const linea = columnas.map((c) => String(c.valor(f))).join("   ·   ");
-      doc.text(linea, pageWidth / 2, y, { align: "center" });
-      y += 6;
+    doc.text(titulo, pageWidth / 2, 12 + logoH + 8, { align: "center" });
+    doc.autoTable({
+      startY: 12 + logoH + 14,
+      margin: { left: 14, right: 14 },
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 5, textColor: [30, 30, 35], lineColor: [230, 227, 221], lineWidth: 0.2 },
+      headStyles: { fillColor: [241, 243, 242], textColor: [30, 30, 35], fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [250, 250, 248] },
+      head: [columnas.map((c) => c.titulo)],
+      body: filas.map((f) => columnas.map((c) => String(c.valor(f)))),
     });
     doc.save(`${aiSlugArchivo(titulo)}.pdf`);
   });
@@ -4431,8 +4456,332 @@ function AIModalSucursales({ sucursalesAI, setSucursalesAI, onCerrar }) {
   );
 }
 
-function AIConfiguracion({ sucursalesAI, setSucursalesAI, onSalir }) {
+function AIModalTerminaciones({ sucursalesAI, terminacionesAI, setTerminacionesAI, onCerrar }) {
+  const [sucursal, setSucursal] = useState(sucursalesAI[0] || "");
+  const [terminacion, setTerminacion] = useState("");
+  const agregar = () => {
+    const t = terminacion.trim();
+    if (!sucursal || !/^\d{3}$/.test(t)) return;
+    setTerminacionesAI((p) => [...p.filter((x) => x.sucursal !== sucursal), { id: Date.now(), sucursal, terminacion: t }]);
+    setTerminacion("");
+  };
+  const quitar = (id) => setTerminacionesAI((p) => p.filter((x) => x.id !== id));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 420, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Terminales bancarias</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Los últimos 3 dígitos de la "Referencia" que usa el banco para identificar la terminal de cada sucursal.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="sel" style={{ ...sx.sel, flex: 1 }}>
+            {sucursalesAI.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <input value={terminacion} onChange={(e) => setTerminacion(e.target.value.replace(/\D/g, "").slice(0, 3))} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }} placeholder="092" className="sel" style={{ ...sx.sel, width: 70 }} />
+          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Agregar</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {terminacionesAI.map((t) => (
+            <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 13 }}>{t.sucursal} <span style={{ color: T.muted }}>· {t.terminacion}</span></span>
+              <button onClick={() => quitar(t.id)} title="Quitar" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {terminacionesAI.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No hay terminales configuradas.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Catálogo de nombres de personal — aparece como selector de una sola opción
+// al capturar en Sucursales › Cortes (Responsable de gastos, empleado con
+// descuento, responsable de la captura). Sucursal solo lo lee; se administra
+// aquí.
+function AIModalResponsables({ responsablesAI, setResponsablesAI, onCerrar }) {
+  const [nuevo, setNuevo] = useState("");
+  const agregar = () => {
+    const n = nuevo.trim();
+    if (n && !responsablesAI.includes(n)) setResponsablesAI((p) => [...p, n]);
+    setNuevo("");
+  };
+  const quitar = (n) => setResponsablesAI((p) => p.filter((x) => x !== n));
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 380, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Responsables</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Nombres que el personal de sucursal puede elegir al capturar un corte.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input autoFocus value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }} placeholder="Nombre del responsable" className="sel" style={{ ...sx.sel, flex: 1 }} />
+          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Agregar</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {responsablesAI.map((n) => (
+            <div key={n} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 13 }}>{n}</span>
+              <button onClick={() => quitar(n)} title="Quitar" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {responsablesAI.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No hay responsables — agrega al menos uno.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Lo que cada sucursal capturó en Cortes (gastos, descuentos, ventas por
+// app), agrupado por sucursal + fecha. Aquí solo se puede eliminar un día
+// completo a la vez — no hay borrado de un registro suelto — y pide la
+// misma contraseña que borrar un cuadre de Auditoría (AI_CLAVE_BORRAR),
+// validada siempre en el servidor.
+function AIModalGastosDescuentos({ cortesSucursal, setCortesSucursal, onCerrar }) {
+  const [borrando, setBorrando] = useState(null); // { sucursal, fecha, items }
+  const [passBorrar, setPassBorrar] = useState("");
+  const [errorPassBorrar, setErrorPassBorrar] = useState("");
+  const [borrandoEnCurso, setBorrandoEnCurso] = useState(false);
+
+  const porDia = {};
+  cortesSucursal.forEach((it) => {
+    const clave = `${it.sucursal}|${it.fecha}`;
+    (porDia[clave] = porDia[clave] || { sucursal: it.sucursal, fecha: it.fecha, items: [] }).items.push(it);
+  });
+  const dias = Object.values(porDia).sort((a, b) => b.fecha.localeCompare(a.fecha) || (a.sucursal || "").localeCompare(b.sucursal || "", "es"));
+
+  const abrirBorrar = (d) => { setBorrando(d); setPassBorrar(""); setErrorPassBorrar(""); };
+  const cerrarBorrar = () => { setBorrando(null); setPassBorrar(""); setErrorPassBorrar(""); };
+
+  const confirmarBorrar = async () => {
+    if (!borrando) return;
+    setBorrandoEnCurso(true);
+    setErrorPassBorrar("");
+    try {
+      const r = await apiFetch(`/api/collections/gastos_descuentos_sucursal/dia/${encodeURIComponent(borrando.sucursal)}/${encodeURIComponent(borrando.fecha)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clave: passBorrar }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setErrorPassBorrar(data.error || "Contraseña incorrecta.");
+        return;
+      }
+      setCortesSucursal((prev) => prev.filter((x) => !(x.sucursal === borrando.sucursal && x.fecha === borrando.fecha)));
+      cerrarBorrar();
+    } catch {
+      setErrorPassBorrar("No se pudo borrar — revisa tu conexión.");
+    } finally {
+      setBorrandoEnCurso(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 460, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Gastos y Descuentos</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Lo capturado en Sucursales › Cortes, por sucursal y fecha. Se borra el día completo — no hay forma de quitar un registro suelto desde aquí.</div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {dias.map((d) => (
+            <div key={`${d.sucursal}|${d.fecha}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{d.sucursal} <span style={{ color: T.muted, fontWeight: 400 }}>· {d.fecha}</span></div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{d.items.length} registro{d.items.length === 1 ? "" : "s"}</div>
+              </div>
+              <button onClick={() => abrirBorrar(d)} title="Borrar día" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="Trash2" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {dias.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>Todavía no hay capturas de sucursal.</div>}
+        </div>
+      </div>
+
+      {borrando && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210 }} onClick={cerrarBorrar}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 360, maxWidth: "90vw", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>¿Borrar todo lo de {borrando.sucursal} el {borrando.fecha}?</div>
+            <div style={{ fontSize: 12.5, color: T.muted }}>Se borran {borrando.items.length} registro{borrando.items.length === 1 ? "" : "s"} (gastos, descuentos y ventas por app de ese día). No se puede deshacer.</div>
+            <TField label="Contraseña para confirmar">
+              <input
+                type="password"
+                autoFocus
+                value={passBorrar}
+                onChange={(e) => { setPassBorrar(e.target.value); setErrorPassBorrar(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmarBorrar(); }}
+                className="sel"
+                style={sx.sel}
+              />
+            </TField>
+            {errorPassBorrar && <div style={{ fontSize: 12, color: T.bad }}>{errorPassBorrar}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={cerrarBorrar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+              <button onClick={confirmarBorrar} disabled={!passBorrar || borrandoEnCurso} className="actbtn" style={{ ...sx.actbtn, background: T.bad, opacity: passBorrar && !borrandoEnCurso ? 1 : 0.5, cursor: passBorrar && !borrandoEnCurso ? "pointer" : "default" }}>{borrandoEnCurso ? "Borrando…" : "Sí, borrar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Lo que las sucursales capturaron en Inventario Diario, agrupado por
+// sucursal + fecha. Mismo mecanismo que Gastos y Descuentos: solo se borra
+// un día completo a la vez, y pide la misma contraseña (AI_CLAVE_BORRAR).
+function AIModalInventariosSucursal({ inventariosSucursal, setInventariosSucursal, onCerrar }) {
+  const [borrando, setBorrando] = useState(null); // { sucursal, fecha, items }
+  const [passBorrar, setPassBorrar] = useState("");
+  const [errorPassBorrar, setErrorPassBorrar] = useState("");
+  const [borrandoEnCurso, setBorrandoEnCurso] = useState(false);
+
+  const porDia = {};
+  inventariosSucursal.forEach((it) => {
+    const clave = `${it.sucursal}|${it.fecha}`;
+    (porDia[clave] = porDia[clave] || { sucursal: it.sucursal, fecha: it.fecha, items: [] }).items.push(it);
+  });
+  const dias = Object.values(porDia).sort((a, b) => b.fecha.localeCompare(a.fecha) || (a.sucursal || "").localeCompare(b.sucursal || "", "es"));
+
+  const abrirBorrar = (d) => { setBorrando(d); setPassBorrar(""); setErrorPassBorrar(""); };
+  const cerrarBorrar = () => { setBorrando(null); setPassBorrar(""); setErrorPassBorrar(""); };
+
+  const confirmarBorrar = async () => {
+    if (!borrando) return;
+    setBorrandoEnCurso(true);
+    setErrorPassBorrar("");
+    try {
+      const r = await apiFetch(`/api/collections/conteos_diarios_inventario/dia/${encodeURIComponent(borrando.sucursal)}/${encodeURIComponent(borrando.fecha)}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clave: passBorrar }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setErrorPassBorrar(data.error || "Contraseña incorrecta.");
+        return;
+      }
+      setInventariosSucursal((prev) => prev.filter((x) => !(x.sucursal === borrando.sucursal && x.fecha === borrando.fecha)));
+      cerrarBorrar();
+    } catch {
+      setErrorPassBorrar("No se pudo borrar — revisa tu conexión.");
+    } finally {
+      setBorrandoEnCurso(false);
+    }
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 460, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Inventarios</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Lo capturado en Sucursales › Inventarios, por sucursal y fecha. Se borra el día completo — no hay forma de quitar un registro suelto desde aquí. Afecta el teórico calculado a partir de esa fecha en Gestión › Inventarios.</div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {dias.map((d) => (
+            <div key={`${d.sucursal}|${d.fecha}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{d.sucursal} <span style={{ color: T.muted, fontWeight: 400 }}>· {d.fecha}</span></div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 1 }}>{d.items.length} registro{d.items.length === 1 ? "" : "s"}</div>
+              </div>
+              <button onClick={() => abrirBorrar(d)} title="Borrar día" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="Trash2" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {dias.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>Todavía no hay capturas de sucursal.</div>}
+        </div>
+      </div>
+
+      {borrando && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 210 }} onClick={cerrarBorrar}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 360, maxWidth: "90vw", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>¿Borrar todo lo de {borrando.sucursal} el {borrando.fecha}?</div>
+            <div style={{ fontSize: 12.5, color: T.muted }}>Se borran {borrando.items.length} registro{borrando.items.length === 1 ? "" : "s"} de ese día (físico, mermas, transferencias, cortesías, otras salidas). No se puede deshacer.</div>
+            <TField label="Contraseña para confirmar">
+              <input
+                type="password"
+                autoFocus
+                value={passBorrar}
+                onChange={(e) => { setPassBorrar(e.target.value); setErrorPassBorrar(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmarBorrar(); }}
+                className="sel"
+                style={sx.sel}
+              />
+            </TField>
+            {errorPassBorrar && <div style={{ fontSize: 12, color: T.bad }}>{errorPassBorrar}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={cerrarBorrar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+              <button onClick={confirmarBorrar} disabled={!passBorrar || borrandoEnCurso} className="actbtn" style={{ ...sx.actbtn, background: T.bad, opacity: passBorrar && !borrandoEnCurso ? 1 : 0.5, cursor: passBorrar && !borrandoEnCurso ? "pointer" : "default" }}>{borrandoEnCurso ? "Borrando…" : "Sí, borrar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Catálogo de productos que cada sucursal puede inventariar en Sucursales ›
+// Inventarios › Conteo diario. Misma colección que administra Gestión ›
+// Inventarios › Inventario Diario — aquí es solo un acceso más cómodo desde
+// Cortes › Configuración.
+function AIModalProductosInventario({ productosInventario, setProductosInventario, onCerrar }) {
+  const [nuevo, setNuevo] = useState("");
+
+  // Un solo catálogo compartido por todas las sucursales — ya no hay
+  // selector de sucursal ni filtro: lo que se agregue o quite aquí aplica
+  // igual sin importar con qué usuario de sucursal se entre a capturar.
+  const productos = productosInventario
+    .slice()
+    .sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+
+  const agregar = () => {
+    const nombre = nuevo.trim();
+    if (!nombre) return;
+    if (productos.some((p) => (p.nombre || "").toLowerCase() === nombre.toLowerCase())) { setNuevo(""); return; }
+    setProductosInventario((prev) => [...prev, { id: Date.now() + Math.random(), sucursal: "GLOBAL", nombre }]);
+    setNuevo("");
+  };
+  const quitar = (p) => {
+    if (!window.confirm(`¿Quitar "${p.nombre}" del catálogo? Ya no aparecerá en el conteo diario de ninguna sucursal.`)) return;
+    setProductosInventario((prev) => prev.filter((x) => x.id !== p.id));
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 420, maxWidth: "90vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Productos de Inventario</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Catálogo único para todas las sucursales en Sucursales › Inventarios › Conteo diario.</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input autoFocus value={nuevo} onChange={(e) => setNuevo(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }} placeholder="Nombre del producto" className="sel" style={{ ...sx.sel, flex: 1 }} />
+          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Agregar</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {productos.map((p) => (
+            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 13 }}>{p.nombre}</span>
+              <button onClick={() => quitar(p)} title="Quitar" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {productos.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>Todavía no hay productos — agrega el primero arriba.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTerminacionesAI, responsablesAI, setResponsablesAI, cortesSucursal, setCortesSucursal, inventariosSucursal, setInventariosSucursal, productosInventario, setProductosInventario, onSalir }) {
   const [abierto, setAbierto] = useState(false);
+  const [abiertoTerm, setAbiertoTerm] = useState(false);
+  const [abiertoResp, setAbiertoResp] = useState(false);
+  const [abiertoGastos, setAbiertoGastos] = useState(false);
+  const [abiertoInv, setAbiertoInv] = useState(false);
+  const [abiertoProductos, setAbiertoProductos] = useState(false);
 
   return (
     <div>
@@ -4440,7 +4789,7 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, onSalir }) {
       <div style={sx.h1row}><h1 style={sx.h1}>Configuración</h1></div>
 
       <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, maxWidth: 520 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
           <div>
             <div style={{ fontSize: 13.5, fontWeight: 500 }}>Sucursales</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Aplica a Recepción de Cortes y Conteo de Cortes</div>
@@ -4449,14 +4798,855 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, onSalir }) {
             Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
           </button>
         </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Terminales bancarias</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Para identificar sucursales en el reporte del banco (Auditoría)</div>
+          </div>
+          <button onClick={() => setAbiertoTerm(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Responsables</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Selector de nombres al capturar gastos, descuentos y quién captura</div>
+          </div>
+          <button onClick={() => setAbiertoResp(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Gastos y Descuentos</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Lo capturado por sucursal en Cortes · eliminar por día completo</div>
+          </div>
+          <button onClick={() => setAbiertoGastos(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Ver y eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Inventarios</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Lo capturado por sucursal en Inventarios · eliminar por día completo</div>
+          </div>
+          <button onClick={() => setAbiertoInv(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Ver y eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14 }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Productos de Inventario</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Catálogo único para todas las sucursales · Inventarios · Conteo diario</div>
+          </div>
+          <button onClick={() => setAbiertoProductos(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
       </div>
 
       {abierto && <AIModalSucursales sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onCerrar={() => setAbierto(false)} />}
+      {abiertoTerm && <AIModalTerminaciones sucursalesAI={sucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} onCerrar={() => setAbiertoTerm(false)} />}
+      {abiertoResp && <AIModalResponsables responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} onCerrar={() => setAbiertoResp(false)} />}
+      {abiertoGastos && <AIModalGastosDescuentos cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} onCerrar={() => setAbiertoGastos(false)} />}
+      {abiertoInv && <AIModalInventariosSucursal inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} onCerrar={() => setAbiertoInv(false)} />}
+      {abiertoProductos && <AIModalProductosInventario productosInventario={productosInventario} setProductosInventario={setProductosInventario} onCerrar={() => setAbiertoProductos(false)} />}
     </div>
   );
 }
 
-function AuditoriaInterna() {
+/* ============================================================
+   AUDITORÍA — cuadre de cortes contra ventas.
+   Compara lo que el sistema de la sucursal dice que se vendió contra
+   ventas terminal (tarjeta) + efectivo contado + ventas por app − descuentos
+   de empleado − gastos. La diferencia (sea $0 o no) siempre se registra y
+   finaliza; no hay estado "pendiente" — solo se va acumulando.
+   ============================================================ */
+
+function aiFiltrarPorRango(mapa, desde, hasta) {
+  const out = {};
+  Object.entries(mapa || {}).forEach(([fecha, monto]) => {
+    if (fecha >= desde && fecha <= hasta) out[fecha] = (out[fecha] || 0) + monto;
+  });
+  return out;
+}
+
+const AI_MESES_ABR = { ene: 1, feb: 2, mar: 3, abr: 4, may: 5, jun: 6, jul: 7, ago: 8, sep: 9, oct: 10, nov: 11, dic: 12 };
+
+/* Lee el export tal cual del sistema de sucursales ("Ventas sucursal"). Ese
+   archivo trae un renglón resumen por mes y, SOLO en los meses que se hayan
+   expandido manualmente antes de exportar, un renglón por día debajo. Nos
+   quedamos únicamente con los renglones de día (empiezan con un número) —
+   los de mes/resumen se descartan, son los que "se quedan colgando". */
+async function aiParseVentasSucursal(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const out = {};
+  let huboAlgunaFilaDeDia = false;
+  filas.forEach((fila) => {
+    // La fecha puede venir como texto indentado del export crudo ("     06 jul
+    // 2026"), como fecha real de Excel, o como texto simple — aiParseFechaFlexible
+    // ya entiende esos formatos (probamos con y sin espacios de sobra).
+    const etiqueta = (fila[0] ?? "").toString().trim();
+    const iso = aiParseFechaFlexible(etiqueta) || aiParseFechaFlexible(fila[0]);
+    if (!iso) return;
+    // El monto viene en la columna "Precio total" del export completo (columna
+    // D, índice 3) si esa columna existe; si el archivo ya viene simplificado
+    // a solo "Día" y total, se toma de la columna B (índice 1).
+    const dRaw = fila[3];
+    const dCol = dRaw == null ? NaN : Number(dRaw);
+    const monto = Number.isFinite(dCol) ? dCol : (Number(fila[1]) || 0);
+    out[iso] = (out[iso] || 0) + monto;
+    huboAlgunaFilaDeDia = true;
+  });
+  if (!huboAlgunaFilaDeDia) throw new Error("No se encontraron renglones con fecha de día en el archivo.");
+  return out;
+}
+
+function aiParseFechaFlexible(v) {
+  if (v instanceof Date) return aiFmtISO(v);
+  if (typeof v === "number") {
+    // Número de serie de Excel: días desde 1899-12-30.
+    return aiFmtISO(new Date(Math.round((v - 25569) * 86400 * 1000)));
+  }
+  const s = String(v ?? "").trim();
+  // Formato numérico: 1/7/2026, 01-07-2026, etc.
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+  if (m) {
+    let [, d, mo, y] = m;
+    if (y.length === 2) y = `20${y}`;
+    return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  // Formato con mes en texto: "01 jul 2026" (mismo estilo que Ventas sucursal).
+  m = s.match(/^(\d{1,2})\s+([a-zñ]{3,4})\.?\s+(\d{4})$/i);
+  if (m) {
+    const [, d, mesTxt, y] = m;
+    const mes = AI_MESES_ABR[mesTxt.toLowerCase()];
+    if (mes) return `${y}-${String(mes).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+  }
+  return null;
+}
+
+/* Lee la tabla simple (columnas "Día" y "Total") que se prepara a mano a
+   partir del movimiento del banco — no intenta leer el estado de cuenta
+   crudo del banco directamente. */
+async function aiParseVentasTerminal(file) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+  const out = {};
+  let huboAlgunaFila = false;
+  filas.forEach((fila) => {
+    const iso = aiParseFechaFlexible(fila[0]);
+    if (!iso) return;
+    const crudo = fila[1];
+    const monto = typeof crudo === "number" ? crudo : Number(String(crudo ?? "").replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(monto)) return;
+    out[iso] = (out[iso] || 0) + monto;
+    huboAlgunaFila = true;
+  });
+  if (!huboAlgunaFila) throw new Error("No se encontraron renglones con fecha y monto en el archivo.");
+  return out;
+}
+
+/* Lee el movimiento de banco tal cual lo exporta Santander (columnas: Cuenta,
+   Fecha, Hora, Sucursal(banco), Descripción, Cargo/Abono, Importe, Saldo,
+   Referencia, ...). Se queda solo con los renglones "DEPOSITO VENTAS DEL DIA"
+   y usa los últimos 3 dígitos de la Referencia para saber de qué sucursal es
+   (según lo que se haya configurado en "Terminales bancarias"). Regresa un
+   objeto { sucursal: { fechaISO: monto } } con TODAS las sucursales que haya
+   en el archivo — el que llama se queda solo con la que le interesa. */
+function aiEsFormatoBancoSantander(filas) {
+  const encabezado = (filas[0]?.[0] ?? "").toString().trim().toLowerCase();
+  return encabezado === "cuenta";
+}
+
+function aiSumarDiasISO(iso, dias) {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+// 0 = domingo … 1 = lunes … 6 = sábado (calculado en UTC para no toparse con
+// husos horarios ni horario de verano).
+function aiDiaSemanaISO(iso) {
+  return new Date(`${iso}T00:00:00Z`).getUTCDay();
+}
+
+// El banco refleja el "DEPOSITO VENTAS DEL DIA" un día después de la venta
+// real (la venta del martes aparece con fecha miércoles en el estado de
+// cuenta) — EXCEPTO los lunes, donde llegan juntos, en el mismo renglón de
+// fecha, los depósitos de viernes, sábado Y domingo del fin de semana
+// anterior. No traen ninguna otra marca que los distinga entre sí más que
+// el orden en que aparecen en el archivo: el primero es viernes, el segundo
+// sábado, el tercero domingo — por eso hace falta el "ordinal" (0, 1, 2...),
+// que cuenta cuántos depósitos de esta misma sucursal y fecha ya se vieron
+// antes que este en el archivo.
+function aiFechaVentaDesdeDeposito(fechaDeposito, ordinal) {
+  if (aiDiaSemanaISO(fechaDeposito) === 1) {
+    const offsets = [-3, -2, -1]; // viernes, sábado, domingo
+    return aiSumarDiasISO(fechaDeposito, offsets[Math.min(ordinal, offsets.length - 1)]);
+  }
+  return aiSumarDiasISO(fechaDeposito, -1);
+}
+
+async function aiParseVentasTerminalBanco(file, terminaciones) {
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const filas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+
+  if (!aiEsFormatoBancoSantander(filas)) return null; // no es este formato — que lo intente el lector simple
+
+  const mapaTerminaciones = {};
+  (terminaciones || []).forEach((t) => { if (t.terminacion) mapaTerminaciones[String(t.terminacion).trim()] = t.sucursal; });
+
+  const limpia = (v) => String(v ?? "").replace(/^'/, "").trim();
+  const out = {};
+  let sinMapear = 0;
+  let huboDeposito = false;
+  const contadorPorClave = {}; // "sucursal|fechaDeposito" -> cuántos van (para el caso del lunes)
+
+  filas.slice(1).forEach((fila) => {
+    const descripcion = limpia(fila[4]).toUpperCase();
+    if (descripcion !== "DEPOSITO VENTAS DEL DIA") return;
+    if (limpia(fila[5]) !== "+") return;
+
+    const fechaRaw = limpia(fila[1]);
+    if (!/^\d{8}$/.test(fechaRaw)) return;
+    const fechaDeposito = `${fechaRaw.slice(4, 8)}-${fechaRaw.slice(2, 4)}-${fechaRaw.slice(0, 2)}`;
+
+    const monto = Number(String(fila[6] ?? "").replace(/[^0-9.-]/g, ""));
+    if (!Number.isFinite(monto)) return;
+
+    const referencia = limpia(fila[8]);
+    const terminacion = referencia.slice(-3);
+    const sucursal = mapaTerminaciones[terminacion];
+    huboDeposito = true;
+    if (!sucursal) { sinMapear++; return; }
+
+    const clave = `${sucursal}|${fechaDeposito}`;
+    const ordinal = contadorPorClave[clave] || 0;
+    contadorPorClave[clave] = ordinal + 1;
+    const iso = aiFechaVentaDesdeDeposito(fechaDeposito, ordinal); // día real de la venta, no el día del depósito
+
+    out[sucursal] = out[sucursal] || {};
+    out[sucursal][iso] = Math.round(((out[sucursal][iso] || 0) + monto) * 100) / 100;
+  });
+
+  if (!huboDeposito) throw new Error('No se encontraron renglones "DEPOSITO VENTAS DEL DIA" en el archivo.');
+  return { porSucursal: out, sinMapear };
+}
+
+// Relaciona cada sucursal con los últimos 3 dígitos de "Referencia" que usa
+// el banco para identificar su terminal — así el lector de "Ventas terminal"
+// sabe a qué sucursal pertenece cada depósito del estado de cuenta.
+const AI_TERMINACIONES_DEFAULT = [
+  { id: 1, sucursal: "Las Puentes", terminacion: "092" },
+  { id: 2, sucursal: "S. Apodaca 3", terminacion: "035" },
+  { id: 3, sucursal: "Soriana Cadereyta", terminacion: "348" },
+  { id: 4, sucursal: "Terreno", terminacion: "357" },
+  { id: 5, sucursal: "Walmart San Sebastián", terminacion: "859" },
+  { id: 6, sucursal: "Mitras", terminacion: "864" },
+  { id: 7, sucursal: "Berneses", terminacion: "861" },
+  { id: 8, sucursal: "Escobedo Lineal", terminacion: "870" },
+];
+
+const AI_OTROS_TIPOS = [
+  ["venta_app", "Venta por app (Didi, Uber, etc.)"],
+  ["descuento", "Descuento de empleado"],
+  ["gasto", "Gasto de sucursal"],
+];
+
+// Dos rangos [aDesde,aHasta] y [bDesde,bHasta] (fechas ISO "YYYY-MM-DD", se
+// pueden comparar como texto) se traslapan si cada uno empieza antes de que
+// el otro termine.
+const aiRangosSeTraslapan = (aDesde, aHasta, bDesde, bHasta) => aDesde <= bHasta && bDesde <= aHasta;
+
+// Sucursal/fechas y la captura de ventas/otros viven todos en una sola
+// pantalla: arriba la línea de sucursal + rango, abajo — solo cuando el
+// rango ya es válido — las tarjetas de captura, repartidas a lo ancho.
+function AIAuditoriaCaptura({ sucursales, cuadres, inicial, terminacionesAI, onCancelar, onContinuar }) {
+  const [sucursal, setSucursal] = useState(inicial.sucursal || sucursales[0] || "");
+  const [desde, setDesde] = useState(inicial.desde);
+  const [hasta, setHasta] = useState(inicial.hasta);
+
+  const [ventasSucursal, setVentasSucursal] = useState(inicial.ventasSucursal || {});
+  const [ventasTerminal, setVentasTerminal] = useState(inicial.ventasTerminal || {});
+  const [otros, setOtros] = useState(inicial.otros || []);
+  const [cargando, setCargando] = useState(null);
+  const [error, setError] = useState("");
+  const [confirmando, setConfirmando] = useState(false);
+  const [odooFalló, setOdooFalló] = useState(false);
+
+  const yaAuditados = (cuadres || []).filter((c) => c.sucursal === sucursal && c.id !== inicial.id);
+  const traslape = desde && hasta && desde <= hasta
+    ? yaAuditados.find((c) => aiRangosSeTraslapan(desde, hasta, c.desde, c.hasta))
+    : null;
+  const listo = sucursal && desde && hasta && desde <= hasta && !traslape;
+
+  const subirVentasSucursal = async (file) => {
+    setError(""); setCargando("sucursal");
+    try {
+      const data = await aiParseVentasSucursal(file);
+      const filtrado = aiFiltrarPorRango(data, desde, hasta);
+      const total = Object.values(filtrado).reduce((s, v) => s + v, 0);
+      if (Object.keys(filtrado).length > 0 && total === 0) {
+        setError("Se encontraron días pero el total dio $0.00 — revisa que este archivo sea el export de Ventas sucursal (no el de Ventas terminal por error).");
+      }
+      setVentasSucursal(filtrado);
+    } catch (e) {
+      setError("No se pudo leer el archivo de Ventas sucursal — revisa que sea el export tal cual del sistema. " + (e?.message || ""));
+    }
+    setCargando(null);
+  };
+
+  const traerVentasSucursalOdoo = async () => {
+    setError(""); setCargando("sucursal-odoo");
+    try {
+      const r = await apiFetch(`/api/odoo/ventas-sucursal?sucursal=${encodeURIComponent(sucursal)}&desde=${desde}&hasta=${hasta}`);
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.error || `Error ${r.status}`);
+      setVentasSucursal(body);
+    } catch (e) {
+      setOdooFalló(true);
+      setError("No se pudo traer los datos de Odoo automáticamente — " + (e?.message || "sube el archivo a mano por ahora.") + " Puedes subir el archivo manualmente aquí abajo.");
+    }
+    setCargando(null);
+  };
+  // Acepta uno o varios archivos — hace falta cuando el rango del cuadre
+  // cruza de un mes a otro y el banco entrega un reporte por mes: se suman
+  // los depósitos de todos los archivos (por fecha) y AL FINAL se filtra
+  // una sola vez por el rango del cuadre, así no importa cuántos días de
+  // "sobra" traiga cada archivo.
+  const subirVentasTerminal = async (files) => {
+    const lista = Array.isArray(files) ? files : [files];
+    if (lista.length === 0) return;
+    setError(""); setCargando("terminal");
+    try {
+      const acumulado = {}; // fechaISO -> monto, ya solo de la sucursal de este cuadre
+      let sinMapear = 0;
+      let huboBanco = false;
+      let huboSimple = false;
+
+      const suma = (mapa) => {
+        Object.entries(mapa || {}).forEach(([fecha, monto]) => {
+          acumulado[fecha] = Math.round(((acumulado[fecha] || 0) + monto) * 100) / 100;
+        });
+      };
+
+      for (const file of lista) {
+        const banco = await aiParseVentasTerminalBanco(file, terminacionesAI);
+        if (banco) {
+          huboBanco = true;
+          sinMapear += banco.sinMapear;
+          suma(banco.porSucursal[sucursal] || {});
+        } else {
+          huboSimple = true;
+          suma(await aiParseVentasTerminal(file));
+        }
+      }
+
+      const filtrado = aiFiltrarPorRango(acumulado, desde, hasta);
+      setVentasTerminal(filtrado);
+
+      if (Object.keys(filtrado).length === 0) {
+        setError(huboBanco
+          ? `No se encontraron depósitos de "${sucursal}" en ese rango de fechas dentro del archivo — revisa la terminación configurada en Configuración › Terminales bancarias.`
+          : "No se encontraron días en ese rango dentro del archivo.");
+      } else if (huboBanco && sinMapear > 0) {
+        setError(`Se cargaron los datos de ${sucursal}. Aviso: hay ${sinMapear} depósito(s) de otras terminales en el archivo sin una sucursal configurada — no afectan este cuadre.`);
+      } else if (huboSimple && !huboBanco) {
+        const total = Object.values(filtrado).reduce((s, v) => s + v, 0);
+        if (total === 0) setError("Se encontraron días pero el total dio $0.00 — revisa que este archivo sea el correcto de Ventas terminal.");
+      }
+    } catch (e) {
+      setError("No se pudo leer el archivo de Ventas terminal — revisa que sea el reporte de movimientos del banco, o una tabla con columnas de fecha y total. " + (e?.message || ""));
+    }
+    setCargando(null);
+  };
+
+  const totalSuc = Object.values(ventasSucursal).reduce((s, v) => s + v, 0);
+  const totalTerm = Object.values(ventasTerminal).reduce((s, v) => s + v, 0);
+  const diasSuc = Object.keys(ventasSucursal).length;
+  const diasTerm = Object.keys(ventasTerminal).length;
+
+  // Borra de verdad (en el servidor) un gasto/descuento/venta app que
+  // capturó una sucursal — es la manera de corregir cuando se equivocan,
+  // ya que ellos mismos ya no pueden borrar sus propios registros.
+  const borrarAutomatico = async (o) => {
+    const etiquetaTipo = o.tipo === "gasto" ? "Gasto" : o.tipo === "descuento" ? "Descuento" : "Venta por app";
+    if (!window.confirm(`¿Borrar este registro capturado por sucursal?\n\n${etiquetaTipo} · ${o.fecha} · ${aiMoney(Number(o.monto) || 0)}`)) return;
+    const idReal = String(o.id).replace(/^auto-/, "");
+    try {
+      const r = await apiFetch(`/api/collections/gastos_descuentos_sucursal/${idReal}`, { method: "DELETE" });
+      if (!r.ok) { setError("No se pudo borrar ese registro."); return; }
+      setOtros((prev) => prev.filter((x) => x.id !== o.id));
+    } catch {
+      setError("No se pudo borrar ese registro — revisa tu conexión.");
+    }
+  };
+
+  // Gastos y descuentos ya no se capturan aquí a mano — los captura el
+  // personal de cada sucursal el mismo día, y aquí se jalan solos filtrando
+  // por sucursal y por el rango de fechas de este cuadre.
+  useEffect(() => {
+    if (!listo) return;
+    let cancelado = false;
+    (async () => {
+      try {
+        const r = await apiFetch("/api/collections/gastos_descuentos_sucursal");
+        if (!r.ok || cancelado) return;
+        const data = await r.json();
+        if (cancelado) return;
+        const auto = data
+          .filter((it) => it.sucursal === sucursal && it.fecha >= desde && it.fecha <= hasta)
+          .map((it) => ({ id: `auto-${it.id}`, tipo: it.tipo, fecha: it.fecha, descripcion: it.descripcion, monto: it.monto, responsable: it.responsable || "", detalle: it.detalle || "", automatico: true }));
+        setOtros((prev) => [...prev.filter((o) => !o.automatico), ...auto]);
+      } catch {
+        // silencioso: si falla, el cuadre sigue funcionando solo con lo manual (venta por app)
+      }
+    })();
+    return () => { cancelado = true; };
+  }, [listo, sucursal, desde, hasta]);
+
+  return (
+    <div style={{ display: "grid", gap: 18 }}>
+      <div style={{ ...sx.repCard, display: "flex", gap: 24 }}>
+        <div style={{ display: "grid", gap: 7, flex: 1 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: T.inkSoft }}>Sucursal</div>
+          <select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="sel" style={{ ...sx.sel, width: "100%" }}>
+            {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <div style={{ display: "grid", gap: 7, flex: 1 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: T.inkSoft }}>Desde</div>
+          <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="sel" style={{ ...sx.sel, width: "100%" }} />
+        </div>
+        <div style={{ display: "grid", gap: 7, flex: 1 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: T.inkSoft }}>Hasta</div>
+          <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="sel" style={{ ...sx.sel, width: "100%" }} />
+        </div>
+      </div>
+
+      {desde > hasta && <div style={{ fontSize: 12, color: T.bad }}>La fecha "Hasta" no puede ser antes que "Desde".</div>}
+      {traslape && (
+        <div style={{ fontSize: 12, color: T.bad, background: T.badSoft, borderRadius: 8, padding: "8px 10px" }}>
+          Esos días ya fueron auditados en {sucursal} ({traslape.desde} a {traslape.hasta}). Elige un rango que no se traslape.
+        </div>
+      )}
+      {yaAuditados.length > 0 && !traslape && (
+        <div style={{ fontSize: 11.5, color: T.muted }}>
+          Ya auditado en {sucursal}: {yaAuditados.map((c) => `${c.desde} a ${c.hasta}`).join(" · ")}
+        </div>
+      )}
+
+      {!listo && (
+        <div style={{ fontSize: 12.5, color: T.muted }}>Elige una sucursal y un rango de fechas válido para continuar.</div>
+      )}
+
+      {listo && (
+        <>
+          <div style={{ display: "grid", gap: 18, gridTemplateColumns: "1fr 1fr", alignItems: "stretch", minHeight: "calc(100vh - 430px)" }}>
+            <div style={{ display: "grid", gap: 18, gridTemplateRows: "1fr 1fr" }}>
+              <div style={{ ...sx.repCard, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Ventas sucursal</div>
+                <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 8 }}>Se trae automático de Odoo.</div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                  <button onClick={traerVentasSucursalOdoo} disabled={cargando === "sucursal-odoo"} className="actbtn" style={{ ...sx.actbtn, fontSize: 12, padding: "7px 12px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>
+                    {cargando === "sucursal-odoo" ? "Conectando con Odoo…" : "⟳ Traer de Odoo"}
+                  </button>
+                </div>
+                {odooFalló && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 6 }}>Como alternativa, sube el export tal cual lo descarga el sistema — se limpia solo.</div>
+                    <input type="file" accept=".xlsx,.xls" onChange={(e) => e.target.files[0] && subirVentasSucursal(e.target.files[0])} />
+                  </div>
+                )}
+                {cargando === "sucursal" && <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Leyendo…</div>}
+                {diasSuc > 0 && <div style={{ fontSize: 12.5, color: T.ok, marginTop: 6 }}>{diasSuc} día{diasSuc === 1 ? "" : "s"} cargados dentro del rango · {aiMoney(totalSuc)}</div>}
+              </div>
+
+              <div style={{ ...sx.repCard, display: "flex", flexDirection: "column", boxSizing: "border-box" }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 8 }}>Ventas terminal</div>
+                <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 8 }}>Sube el reporte de movimientos del banco tal cual lo descargas — se filtra solo. Si tu rango cruza de un mes a otro, selecciona los dos archivos juntos (Cmd/Ctrl+clic).</div>
+                <input type="file" accept=".xlsx,.xls,.csv" multiple onChange={(e) => e.target.files.length > 0 && subirVentasTerminal(Array.from(e.target.files))} />
+                {cargando === "terminal" && <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Leyendo…</div>}
+                {diasTerm > 0 && <div style={{ fontSize: 12.5, color: T.ok, marginTop: 6 }}>{diasTerm} día{diasTerm === 1 ? "" : "s"} cargados dentro del rango · {aiMoney(totalTerm)}</div>}
+              </div>
+            </div>
+
+            <div style={{ ...sx.repCard, height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+              <div style={{ fontWeight: 700, fontSize: 13.5, marginBottom: 4 }}>Otros</div>
+              <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 10 }}>Gastos, descuentos y venta por app se jalan solos de lo que capturó cada sucursal.</div>
+              <div style={{ display: "grid", gap: 10, alignContent: "start" }}>
+                {otros.map((o) => (
+                  <div key={o.id} style={{ border: `1px solid ${T.line}`, borderRadius: 9, padding: 10, display: "grid", gap: 8, background: T.paper }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5 }}>
+                      <div>
+                        <strong>{o.tipo === "gasto" ? "Gasto" : o.tipo === "descuento" ? "Descuento" : "Venta por app"}</strong> · {o.fecha} · {o.descripcion || "Sin descripción"}
+                        {o.tipo === "gasto" && o.responsable ? <span style={{ color: T.muted }}> · {o.responsable}</span> : null}
+                        <div style={{ fontSize: 10.5, color: T.muted, marginTop: 2 }}>Capturado por sucursal</div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <strong>{aiMoney(Number(o.monto) || 0)}</strong>
+                        <button onClick={() => borrarAutomatico(o)} title="Borrar" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={15} color={T.bad} /></button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {otros.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>Nada capturado todavía para este periodo.</div>}
+              </div>
+            </div>
+          </div>
+
+          {error && <div style={{ fontSize: 12.5, color: T.bad, background: T.badSoft, borderRadius: 8, padding: "8px 10px" }}>{error}</div>}
+        </>
+      )}
+
+      <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+        <button onClick={onCancelar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+        <button disabled={!listo} onClick={() => setConfirmando(true)} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: listo ? 1 : 0.5, cursor: listo ? "pointer" : "default" }}>Continuar</button>
+      </div>
+
+      {confirmando && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={() => setConfirmando(false)}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 360, maxWidth: "90vw", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>¿Estás seguro?</div>
+            <div style={{ fontSize: 12.5, color: T.muted }}>Se va a calcular el cuadre con lo que cargaste hasta ahora. Todavía puedes revisar los números antes de finalizar.</div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={() => setConfirmando(false)} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+              <button onClick={() => onContinuar({ sucursal, desde, hasta, ventasSucursal, ventasTerminal, otros })} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Sí, continuar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AIAuditoriaCifras({ datos, conteos }) {
+  const totalVentasSucursal = Math.round(Object.values(datos.ventasSucursal || {}).reduce((s, v) => s + v, 0) * 100) / 100;
+  const totalVentasTerminal = Math.round(Object.values(datos.ventasTerminal || {}).reduce((s, v) => s + v, 0) * 100) / 100;
+  const otros = datos.otros || [];
+  const totalApps = otros.filter((o) => o.tipo === "venta_app").reduce((s, o) => s + (Number(o.monto) || 0), 0);
+  const totalDescuentos = otros.filter((o) => o.tipo === "descuento").reduce((s, o) => s + (Number(o.monto) || 0), 0);
+  const totalGastos = otros.filter((o) => o.tipo === "gasto").reduce((s, o) => s + (Number(o.monto) || 0), 0);
+
+  const efectivoContado = useMemo(() => {
+    let s = 0;
+    (conteos || []).filter(aiCuentaHaciaSaldo).forEach((c) => {
+      c.bloques.forEach((b) => {
+        const iso = aiCorteISO(b.fecha);
+        if (b.sucursal === datos.sucursal && iso && iso >= datos.desde && iso <= datos.hasta) s += aiTotalConteo(b.cantidades);
+      });
+    });
+    return Math.round(s * 100) / 100;
+  }, [conteos, datos.sucursal, datos.desde, datos.hasta]);
+
+  const reconstruido = Math.round((totalVentasTerminal + efectivoContado + totalApps - totalDescuentos - totalGastos) * 100) / 100;
+  const diferencia = Math.round((reconstruido - totalVentasSucursal) * 100) / 100;
+
+  return { totalVentasSucursal, totalVentasTerminal, efectivoContado, totalApps, totalDescuentos, totalGastos, diferencia };
+}
+
+/* Arma un renglón por cada día del rango (aunque no tenga datos) para el
+   detalle día-por-día: ventas sucursal / terminal ya vienen bucketadas por
+   fecha; el efectivo contado se saca de los cortes de esa sucursal/día; los
+   "otros" (apps, descuentos, gastos) se filtran por su campo "fecha". */
+function aiCifrasPorDia({ datos, conteos }) {
+  const dias = [];
+  for (let d = datos.desde; d <= datos.hasta; d = aiSumaISO(d, 1)) dias.push(d);
+
+  const efectivoPorDia = {};
+  (conteos || []).filter(aiCuentaHaciaSaldo).forEach((c) => {
+    c.bloques.forEach((b) => {
+      const iso = aiCorteISO(b.fecha);
+      if (b.sucursal === datos.sucursal && iso) {
+        efectivoPorDia[iso] = (efectivoPorDia[iso] || 0) + aiTotalConteo(b.cantidades);
+      }
+    });
+  });
+
+  const otros = datos.otros || [];
+  return dias.map((fecha) => {
+    const ventasSucursal = Math.round((Number(datos.ventasSucursal?.[fecha]) || 0) * 100) / 100;
+    const ventasTerminal = Math.round((Number(datos.ventasTerminal?.[fecha]) || 0) * 100) / 100;
+    const efectivo = Math.round((efectivoPorDia[fecha] || 0) * 100) / 100;
+    const apps = otros.filter((o) => o.tipo === "venta_app" && (o.fecha || datos.desde) === fecha).reduce((s, o) => s + (Number(o.monto) || 0), 0);
+    const descuentos = otros.filter((o) => o.tipo === "descuento" && (o.fecha || datos.desde) === fecha).reduce((s, o) => s + (Number(o.monto) || 0), 0);
+    const gastos = otros.filter((o) => o.tipo === "gasto" && (o.fecha || datos.desde) === fecha).reduce((s, o) => s + (Number(o.monto) || 0), 0);
+    const reconstruido = Math.round((ventasTerminal + efectivo + apps - descuentos - gastos) * 100) / 100;
+    const diferencia = Math.round((reconstruido - ventasSucursal) * 100) / 100;
+    return { fecha, ventasSucursal, ventasTerminal, efectivo, apps, descuentos, gastos, diferencia };
+  });
+}
+
+function AIAuditoriaTablaDiaria({ filas }) {
+  return (
+    <div style={{ ...sx.repCard, padding: 0, overflow: "auto" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr>
+            {["Día", "Sucursal", "Terminal", "Efectivo", "Apps", "Desc.", "Gastos", "Diferencia"].map((h, i) => (
+              <th key={h} style={{ padding: "9px 10px", fontWeight: 700, color: T.inkSoft, textAlign: i === 0 ? "left" : "right", borderBottom: `1px solid ${T.line}`, whiteSpace: "nowrap" }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.fecha}>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, whiteSpace: "nowrap" }}>{f.fecha}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{aiMoney(f.ventasSucursal)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{aiMoney(f.ventasTerminal)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{aiMoney(f.efectivo)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{aiMoney(f.apps)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", color: f.descuentos ? T.bad : "inherit" }}>{f.descuentos ? "− " + aiMoney(f.descuentos) : aiMoney(0)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", color: f.gastos ? T.bad : "inherit" }}>{f.gastos ? "− " + aiMoney(f.gastos) : aiMoney(0)}</td>
+              <td style={{ padding: "8px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", fontWeight: 700 }}>
+                {f.diferencia === 0 ? aiMoney(0) : (f.diferencia < 0 ? "− " : "+ ") + aiMoney(Math.abs(f.diferencia))}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AIAuditoriaDiario({ datos, conteos, onAtras, onContinuar }) {
+  const filas = useMemo(() => aiCifrasPorDia({ datos, conteos }), [datos, conteos]);
+  return (
+    <div style={{ display: "grid", gap: 16, maxWidth: 920 }}>
+      <div style={{ fontSize: 12.5, color: T.muted }}>{datos.sucursal} · {datos.desde} a {datos.hasta} · detalle día por día</div>
+      <AIAuditoriaTablaDiaria filas={filas} />
+      <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+        <button onClick={onAtras} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>‹ Atrás</button>
+        <button onClick={onContinuar} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Continuar</button>
+      </div>
+    </div>
+  );
+}
+
+function AIAuditoriaDesglose({ cifras }) {
+  return (
+    <div style={sx.repCard}>
+      <div style={{ display: "grid", gap: 8, fontSize: 13 }}>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Ventas sucursal (sistema)</span><strong>{aiMoney(cifras.totalVentasSucursal)}</strong></div>
+        <div style={{ height: 1, background: T.lineSoft }} />
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Ventas terminal (tarjeta)</span><strong>{aiMoney(cifras.totalVentasTerminal)}</strong></div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Efectivo contado</span><strong>{aiMoney(cifras.efectivoContado)}</strong></div>
+        <div style={{ display: "flex", justifyContent: "space-between" }}><span>Ventas por app</span><strong>{aiMoney(cifras.totalApps)}</strong></div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: T.bad }}><span>Descuentos empleado</span><strong>− {aiMoney(cifras.totalDescuentos)}</strong></div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: T.bad }}><span>Gastos</span><strong>− {aiMoney(cifras.totalGastos)}</strong></div>
+      </div>
+    </div>
+  );
+}
+
+function AIAuditoriaResumen({ datos, conteos, onAtras, onFinalizar }) {
+  const cifras = AIAuditoriaCifras({ datos, conteos });
+  return (
+    <div style={{ display: "grid", gap: 16, maxWidth: 560 }}>
+      <div style={{ fontSize: 12.5, color: T.muted }}>{datos.sucursal} · {datos.desde} a {datos.hasta}</div>
+      <AIAuditoriaDesglose cifras={cifras} />
+      <div style={{ ...sx.repCard, textAlign: "center" }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Diferencia</div>
+        <strong style={{ fontSize: 26, color: cifras.diferencia === 0 ? T.ok : T.ink }}>
+          {cifras.diferencia === 0 ? "Cuadra en $0.00" : (cifras.diferencia < 0 ? "Faltan " : "Sobran ") + aiMoney(Math.abs(cifras.diferencia))}
+        </strong>
+      </div>
+      <div style={{ display: "flex", gap: 8, justifyContent: "space-between" }}>
+        <button onClick={onAtras} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>‹ Atrás</button>
+        <button onClick={() => onFinalizar({ sucursal: datos.sucursal, desde: datos.desde, hasta: datos.hasta, ventasSucursal: datos.ventasSucursal, ventasTerminal: datos.ventasTerminal, otros: datos.otros, ...cifras })} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Finalizar</button>
+      </div>
+    </div>
+  );
+}
+
+function AIAuditoriaVer({ datos, conteos, verSensible, setVerSensible, verDiario, setVerDiario, onCerrar }) {
+  const gastos = (datos.otros || []).filter((o) => o.tipo === "gasto");
+  const filasDiario = useMemo(() => aiCifrasPorDia({ datos, conteos }), [datos, conteos]);
+  return (
+    <div style={{ display: "grid", gap: 16, maxWidth: 920 }}>
+      <div style={{ fontSize: 12.5, color: T.muted }}>{datos.sucursal} · {datos.desde} a {datos.hasta}</div>
+      <div style={{ maxWidth: 560, display: "grid", gap: 16 }}>
+        <AIAuditoriaDesglose cifras={datos} />
+        <div style={{ ...sx.repCard, textAlign: "center" }}>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Diferencia</div>
+          <strong style={{ fontSize: 26, color: datos.diferencia === 0 ? T.ok : T.ink }}>
+            {datos.diferencia === 0 ? "Cuadra en $0.00" : (datos.diferencia < 0 ? "Faltan " : "Sobran ") + aiMoney(Math.abs(datos.diferencia))}
+          </strong>
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => setVerDiario((v) => !v)} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}`, width: "fit-content" }}>
+          {verDiario ? "Ocultar" : "Ver"} detalle
+        </button>
+        <button onClick={() => setVerSensible((v) => !v)} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}`, width: "fit-content" }}>
+          {verSensible ? "Ocultar" : "Ver"} detalle de gastos
+        </button>
+      </div>
+      {verDiario && <AIAuditoriaTablaDiaria filas={filasDiario} />}
+      {verSensible && (
+        <div style={{ ...sx.repCard, maxWidth: 560 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>Gastos del periodo</div>
+          {gastos.length === 0 ? <div style={{ fontSize: 12, color: T.muted }}>No se registraron gastos.</div> : (
+            <div style={{ display: "grid", gap: 6 }}>
+              {gastos.map((g) => (
+                <div key={g.id} style={{ fontSize: 12.5, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}><strong>{g.descripcion || "Sin descripción"}</strong><span>{aiMoney(Number(g.monto) || 0)}</span></div>
+                  <div style={{ color: T.muted }}>{g.fecha ? `${g.fecha} · ` : ""}Responsable: {g.responsable || "—"}{g.detalle ? ` · ${g.detalle}` : ""}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      <button onClick={onCerrar} className="actbtn" style={{ ...sx.actbtn, background: T.brand, width: "fit-content" }}>Cerrar</button>
+    </div>
+  );
+}
+
+function AIAuditoria({ cuadres, setCuadres, conteos, sucursales, terminacionesAI, onSalir }) {
+  const [paso, setPaso] = useState("lista"); // lista | captura | diario | resumen | ver
+  const [borrador, setBorrador] = useState(null);
+  const [verCuadre, setVerCuadre] = useState(null);
+  const [verSensible, setVerSensible] = useState(false);
+  const [verDiario, setVerDiario] = useState(false);
+  const [borrando, setBorrando] = useState(null); // id del cuadre que se está por borrar (para confirmar)
+  const [passBorrar, setPassBorrar] = useState("");
+  const [errorPassBorrar, setErrorPassBorrar] = useState("");
+  const [borrandoEnCurso, setBorrandoEnCurso] = useState(false);
+
+  const abrirBorrar = (id) => { setBorrando(id); setPassBorrar(""); setErrorPassBorrar(""); };
+  const cerrarBorrar = () => { setBorrando(null); setPassBorrar(""); setErrorPassBorrar(""); };
+
+  // La contraseña ya no se compara aquí en el navegador — se manda al
+  // servidor y es él quien la valida (contra AI_CLAVE_BORRAR en su .env),
+  // así no queda visible en el código que se le manda al navegador.
+  const confirmarBorrar = async () => {
+    setBorrandoEnCurso(true);
+    setErrorPassBorrar("");
+    try {
+      const r = await apiFetch(`/api/collections/cuadres_auditoria/${borrando}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clave: passBorrar }),
+      });
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        setErrorPassBorrar(data.error || "Contraseña incorrecta.");
+        return;
+      }
+      setCuadres((prev) => prev.filter((x) => x.id !== borrando));
+      cerrarBorrar();
+    } catch {
+      setErrorPassBorrar("No se pudo borrar — revisa tu conexión.");
+    } finally {
+      setBorrandoEnCurso(false);
+    }
+  };
+
+  const totalAcumulado = Math.round(cuadres.reduce((s, c) => s + (Number(c.diferencia) || 0), 0) * 100) / 100;
+
+  const abrirNuevo = () => { setBorrador({ sucursal: sucursales[0] || "", desde: aiHoyISO(), hasta: aiHoyISO(), ventasSucursal: {}, ventasTerminal: {}, otros: [] }); setPaso("captura"); };
+  const finalizar = (calculado) => {
+    setCuadres((prev) => [...prev, { id: Date.now(), ...calculado, estado: "finalizado", creado: new Date().toISOString() }]);
+    setBorrador(null);
+    setPaso("lista");
+  };
+
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
+      <div style={sx.h1row}>
+        <h1 style={sx.h1}>Auditoría</h1>
+        {paso === "lista" && <button onClick={abrirNuevo} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>+ Nuevo cuadre</button>}
+      </div>
+
+      {paso === "lista" && (
+        <>
+          <div style={{ ...sx.repCard, marginBottom: 16 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Diferencias acumuladas</div>
+            <strong style={{ fontSize: 24, color: T.ink }}>
+              {totalAcumulado === 0 ? aiMoney(0) : (totalAcumulado < 0 ? "Faltan " : "Sobran ") + aiMoney(Math.abs(totalAcumulado))}
+            </strong>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3 }}>{cuadres.length} cuadre{cuadres.length === 1 ? "" : "s"} registrado{cuadres.length === 1 ? "" : "s"}.</div>
+          </div>
+
+          {cuadres.length === 0 ? <div style={sx.empty}>Aún no hay cuadres registrados.</div> : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {[...cuadres].sort((a, b) => b.id - a.id).map((c) => (
+                <div key={c.id} style={sx.repCard}>
+                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                    <div>
+                      <strong>{c.sucursal}</strong>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{c.desde} a {c.hasta}</div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ fontWeight: 700, color: c.diferencia === 0 ? T.ok : T.ink }}>
+                        {c.diferencia === 0 ? "Cuadra" : (c.diferencia < 0 ? "Faltan " : "Sobran ") + aiMoney(Math.abs(c.diferencia))}
+                      </div>
+                      <button onClick={() => { setVerCuadre(c); setVerSensible(false); setVerDiario(false); setPaso("ver"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 10px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+                      <button onClick={() => abrirBorrar(c.id)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 10px", background: "#fff", color: T.bad, border: `1px solid ${T.line}` }}>Borrar</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {borrando != null && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={cerrarBorrar}>
+          <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 360, maxWidth: "90vw", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ fontWeight: 700, fontSize: 14.5 }}>¿Borrar este cuadre?</div>
+            <div style={{ fontSize: 12.5, color: T.muted }}>No se puede deshacer. Su diferencia también se quita del acumulado.</div>
+            <TField label="Contraseña para confirmar">
+              <input
+                type="password"
+                autoFocus
+                value={passBorrar}
+                onChange={(e) => { setPassBorrar(e.target.value); setErrorPassBorrar(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter") confirmarBorrar(); }}
+                className="sel"
+                style={sx.sel}
+              />
+            </TField>
+            {errorPassBorrar && <div style={{ fontSize: 12, color: T.bad }}>{errorPassBorrar}</div>}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button onClick={cerrarBorrar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+              <button onClick={confirmarBorrar} disabled={!passBorrar || borrandoEnCurso} className="actbtn" style={{ ...sx.actbtn, background: T.bad, opacity: passBorrar && !borrandoEnCurso ? 1 : 0.5, cursor: passBorrar && !borrandoEnCurso ? "pointer" : "default" }}>{borrandoEnCurso ? "Borrando…" : "Sí, borrar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paso === "captura" && borrador && (
+        <AIAuditoriaCaptura sucursales={sucursales} cuadres={cuadres} inicial={borrador} terminacionesAI={terminacionesAI} onCancelar={() => { setBorrador(null); setPaso("lista"); }} onContinuar={(d) => { setBorrador({ ...borrador, ...d }); setPaso("diario"); }} />
+      )}
+
+      {paso === "diario" && borrador && (
+        <AIAuditoriaDiario datos={borrador} conteos={conteos} onAtras={() => setPaso("captura")} onContinuar={() => setPaso("resumen")} />
+      )}
+
+      {paso === "resumen" && borrador && (
+        <AIAuditoriaResumen datos={borrador} conteos={conteos} onAtras={() => setPaso("diario")} onFinalizar={finalizar} />
+      )}
+
+      {paso === "ver" && verCuadre && (
+        <AIAuditoriaVer datos={verCuadre} conteos={conteos} verSensible={verSensible} setVerSensible={setVerSensible} verDiario={verDiario} setVerDiario={setVerDiario} onCerrar={() => { setVerCuadre(null); setPaso("lista"); }} />
+      )}
+    </div>
+  );
+}
+
+function AuditoriaInterna({ onCerrarSesion }) {
   const [panel, setPanel] = useState(null);
   // Estos cinco ya no viven solo en memoria: se leen y se guardan de verdad
   // en la base de datos del servidor (ver src/hooks/persistence.js). El resto
@@ -4466,9 +5656,21 @@ function AuditoriaInterna() {
   const [salidas, setSalidas, salidasListas] = usePersistedCollection("salidas");
   const [conteos, setConteos, conteosListos] = usePersistedCollection("conteos");
   const [borradoresConteo, setBorradoresConteo, borradoresListos] = usePersistedCollection("borradores_conteo");
+  const [cuadresAuditoria, setCuadresAuditoria, cuadresListos] = usePersistedCollection("cuadres_auditoria");
   const [sucursalesAI, setSucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
+  const [terminacionesAI, setTerminacionesAI] = usePersistedList("terminacionesAI", AI_TERMINACIONES_DEFAULT);
+  const [responsablesAI, setResponsablesAI] = usePersistedList("responsables_sucursal", []);
+  const [cortesSucursal, setCortesSucursal, cortesSucursalListos] = usePersistedCollection("gastos_descuentos_sucursal");
+  // Se lee aquí también (no solo en el departamento de Inventarios) para
+  // poder eliminarlo desde Cortes › Configuración, junto con lo demás que
+  // captura sucursal.
+  const [inventariosSucursal, setInventariosSucursal, inventariosSucursalListos] = usePersistedCollection("conteos_diarios_inventario");
+  // También aquí (no solo en Gestión › Inventarios) para poder agregar y
+  // quitar productos desde Cortes › Configuración.
+  const [productosInventario, setProductosInventario, productosInventarioListos] = usePersistedCollection("productos_inventario");
 
-  const datosListos = recepcionesListas && salidasListas && conteosListos && borradoresListos;
+  const datosListos = recepcionesListas && salidasListas && conteosListos && borradoresListos && cuadresListos && cortesSucursalListos && inventariosSucursalListos && productosInventarioListos;
+  const puedeConfigurar = !USUARIOS_SIN_CONFIG_CORTES.has(getUsername());
 
   const tituloPanel = AI_PANELES_CAPTURA.find((p) => p.key === panel)?.nombre || AI_PANELES_VISUAL.find((p) => p.key === panel)?.nombre || AI_PANELES_CONFIG.find((p) => p.key === panel)?.nombre || "Panel principal";
 
@@ -4479,16 +5681,18 @@ function AuditoriaInterna() {
           <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Cortes</div>
           <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{panel ? tituloPanel : "Panel principal"}</div>
         </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
         {!datosListos && <div style={sx.empty}>Cargando datos…</div>}
-        {datosListos && !panel && <AIHome onEnter={setPanel} />}
+        {datosListos && !panel && <AIHome onEnter={setPanel} mostrarConfiguracion={puedeConfigurar} />}
         {datosListos && panel === "recepcion" && <AIRecepcion recepciones={recepciones} setRecepciones={setRecepciones} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "conteo" && <AIConteo recepciones={recepciones} setRecepciones={setRecepciones} conteos={conteos} setConteos={setConteos} borradores={borradoresConteo} setBorradores={setBorradoresConteo} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "v1" && <AICierreSemanal recepciones={recepciones} sucursales={sucursalesAI} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "v3" && <AISaldoEfectivo conteos={conteos} salidas={salidas} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "salidas" && <AISalidas salidas={salidas} setSalidas={setSalidas} conteos={conteos} onSalir={() => setPanel(null)} />}
-        {datosListos && panel === "config" && <AIConfiguracion sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onSalir={() => setPanel(null)} />}
+        {datosListos && panel === "auditoria" && <AIAuditoria cuadres={cuadresAuditoria} setCuadres={setCuadresAuditoria} conteos={conteos} sucursales={sucursalesAI} terminacionesAI={terminacionesAI} onSalir={() => setPanel(null)} />}
+        {datosListos && panel === "config" && puedeConfigurar && <AIConfiguracion sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} productosInventario={productosInventario} setProductosInventario={setProductosInventario} onSalir={() => setPanel(null)} />}
       </main>
     </>
   );
@@ -4586,8 +5790,131 @@ const diasEntre = (a, b) => Math.max(1, Math.round((new Date(b).getTime() - new 
 const INVMES_SEED = { 5: {} };
 const invConsumo = (r) => r.productos ? r.productos.reduce((s, p) => s + (p.inicial + p.compras - p.final) * p.precio, 0) : (r.inicial + r.compras - r.final);
 
+/* ===== Inventario diario por producto (real, conectado a la base de datos) =====
+   Cada sucursal, desde su propia pantalla, agrega libremente los productos
+   que quiere inventariar (sin catálogo fijo) y captura cada día: físico
+   contado, mermas, transferencias, cortesías y otras salidas. El "consumo
+   por ventas" no lo captura nadie — se trae solo de Odoo. Aquí, del lado de
+   Inventarios, se calcula el TEÓRICO de cada producto a partir de la última
+   "base" confirmada (ajustes_inventario) y se compara contra lo que reportó
+   la sucursal. La base solo cambia cuando se confirma un inventario
+   presencial (ver InvPresencial) — el día a día no la mueve, nada más se
+   acumula sobre ella. */
+function useInvBase() {
+  const [productos, setProductos] = useState([]);
+  const [conteos, setConteos] = useState([]);
+  const [ajustes, setAjustes] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState("");
+
+  const recargar = async () => {
+    setCargando(true); setError("");
+    try {
+      const [rp, rc, ra] = await Promise.all([
+        apiFetch("/api/collections/productos_inventario"),
+        apiFetch("/api/collections/conteos_diarios_inventario"),
+        apiFetch("/api/collections/ajustes_inventario"),
+      ]);
+      const [dp, dc, da] = await Promise.all([rp.json(), rc.json(), ra.json()]);
+      if (!rp.ok || !Array.isArray(dp)) throw new Error(dp?.error || "No se pudieron cargar los productos de inventario");
+      if (!rc.ok || !Array.isArray(dc)) throw new Error(dc?.error || "No se pudieron cargar los conteos diarios");
+      if (!ra.ok || !Array.isArray(da)) throw new Error(da?.error || "No se pudieron cargar los ajustes de base");
+      setProductos(dp); setConteos(dc); setAjustes(da);
+    } catch (e) {
+      setError(e?.message || "No se pudo cargar la información de inventarios.");
+    }
+    setCargando(false);
+  };
+
+  useEffect(() => { recargar(); }, []);
+
+  const crearAjuste = async (ajuste) => {
+    const item = { id: Date.now() + Math.random(), ...ajuste };
+    const r = await apiFetch("/api/collections/ajustes_inventario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) });
+    if (!r.ok) throw new Error("No se pudo guardar el ajuste.");
+    setAjustes((prev) => [...prev, item]);
+    return item;
+  };
+
+  // La lista de productos a inventariar ya no la maneja sucursal (allá es
+  // "ro") — se agrega y quita aquí, desde Gestión.
+  const crearProducto = async (sucursal, nombre) => {
+    const item = { id: Date.now() + Math.random(), sucursal, nombre };
+    const r = await apiFetch("/api/collections/productos_inventario", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) });
+    if (!r.ok) throw new Error("No se pudo agregar el producto.");
+    setProductos((prev) => [...prev, item]);
+    return item;
+  };
+  const eliminarProducto = async (id) => {
+    const r = await apiFetch(`/api/collections/productos_inventario/${id}`, { method: "DELETE" });
+    if (!r.ok) throw new Error("No se pudo quitar el producto.");
+    setProductos((prev) => prev.filter((p) => p.id !== id));
+  };
+
+  return { productos, conteos, ajustes, cargando, error, recargar, crearAjuste, crearProducto, eliminarProducto };
+}
+
+// Encuentra el ajuste de base más reciente (≤ fecha) para un producto de una
+// sucursal — el punto de partida ("inventario inicial") desde el que se
+// acumulan los movimientos diarios hasta llegar al teórico de "fecha".
+function ultimoAjusteDe(ajustes, sucursal, producto, fecha) {
+  return ajustes
+    .filter((a) => a.sucursal === sucursal && a.producto === producto && a.fecha <= fecha)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] || null;
+}
+
+// Teórico = última base confirmada + movimientos día a día desde ahí hasta
+// "fechaHasta": − consumo por ventas (Odoo) − mermas − transferencias −
+// cortesías − otras salidas. Las entradas de Almacén todavía no se
+// automatizan (se acordó empezar sin eso), así que por ahora no suman.
+// Un mismo producto/día puede tener VARIOS registros (el físico contado y,
+// aparte, cada mermas/transferencias/cortesías/otras que se haya agregado) —
+// por eso aquí se suman todos los del día, no se toma solo el primero.
+function calcularTeorico({ ajuste, conteosProducto, consumoPorFecha, producto, fechaHasta }) {
+  if (!ajuste) return null;
+  let t = Number(ajuste.cantidad) || 0;
+  let cursor = addDaysISO(ajuste.fecha, 1);
+  let guard = 0;
+  while (cursor <= fechaHasta && guard < 730) {
+    const consumo = (consumoPorFecha[cursor] && consumoPorFecha[cursor][producto]) || 0;
+    t -= consumo;
+    const filasDia = conteosProducto.filter((x) => x.fecha === cursor);
+    if (filasDia.length) {
+      const salidas = filasDia.reduce((s, x) => s + (Number(x.mermas) || 0) + (Number(x.transferencias) || 0) + (Number(x.cortesias) || 0) + (Number(x.otras) || 0), 0);
+      t -= salidas;
+    }
+    cursor = addDaysISO(cursor, 1);
+    guard++;
+  }
+  return Math.round(t * 100) / 100;
+}
+
+const invCant = (n) => (Number(n) || 0).toLocaleString("es-MX", { maximumFractionDigits: 2 });
+const invDifCol = (pct) => (Math.abs(pct) < 2 ? T.ok : Math.abs(pct) < 5 ? T.warn : T.bad);
+
+// ---- Semanas de Conciliación (jueves → miércoles) ----
+// Se calculan con año/mes/día "a mano" (sin pasar por Date().toISOString(),
+// que es en UTC) para que no se recorra un día según la zona horaria del
+// navegador — aquí sí importa que el jueves sea jueves.
+function sumarDiasInvISO(fechaISO, n) {
+  const [y, m, d] = fechaISO.split("-").map(Number);
+  const dt = new Date(y, m - 1, d + n);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+}
+function inicioSemanaInvISO(fechaISO) {
+  const [y, m, d] = fechaISO.split("-").map(Number);
+  const dow = new Date(y, m - 1, d).getDay(); // 0=Dom .. 6=Sáb
+  const diff = (dow - 4 + 7) % 7; // días desde el jueves (4) más reciente
+  return sumarDiasInvISO(fechaISO, -diff);
+}
+const MESES_CORTOS_INV = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+const fechaCortaInv = (iso) => { const [, m, d] = iso.split("-").map(Number); return `${Number(d)} ${MESES_CORTOS_INV[m - 1]}`; };
+const rangoSemanaInv = (inicio, fin) => `${fechaCortaInv(inicio)} – ${fechaCortaInv(fin)}`;
+
 const INV_SECCIONES = [
   { key: "mensuales", nombre: "Inventarios Mensuales", iconName: "CalendarRange", activa: true, desc: "Toma por periodo · consumo y costo" },
+  { key: "diario", nombre: "Inventario Diario (Sucursales)", iconName: "ClipboardCheck", activa: true, desc: "Teórico vs físico reportado · por producto" },
+  { key: "presencial", nombre: "Inventario Presencial Mensual", iconName: "ScanSearch", activa: true, desc: "Conteo independiente · ajusta la base" },
   { key: "desechables", nombre: "Inventario de Desechables", iconName: "Package", activa: true, desc: "Vasos por tamaño · sistema vs conteo físico" },
   { key: "criticos", nombre: "Inventarios Productos Críticos", iconName: "AlertTriangle", activa: false, desc: "Insumos de alto costo o alta rotación" },
 ];
@@ -4597,13 +5924,14 @@ const INV_SECCIONES = [
 const INV_USUARIOS_ACCESO_TOTAL = ["Ricardo Administrador", "Carlos Administrador"];
 const INV_USUARIOS = ["Ricardo Administrador", "Carlos Administrador", "Encargado de Almacén", "Gerente de Sucursal", "Auditor"];
 
-function Inventarios({ inv, setInv, invMes, setInvMes }) {
+function Inventarios({ inv, setInv, invMes, setInvMes, onCerrarSesion }) {
   const [sec, setSec] = useState(null);
   // Sin selector visible por ahora (aún no hay sistema de usuarios/login real). El acceso
   // completo de Ricardo y Carlos se mantiene tal cual para cuando exista un login de verdad.
   const usuario = INV_USUARIOS[0];
   const secMeta = INV_SECCIONES.find((s) => s.key === sec);
   const draftFlushRef = useRef(null);
+  const [conteosDiarios] = usePersistedCollection("conteos_diarios_inventario");
   const irASecciones = () => {
     if (draftFlushRef.current) draftFlushRef.current(); // si hay una captura en curso, se guarda como borrador antes de salir
     setSec(null);
@@ -4613,16 +5941,21 @@ function Inventarios({ inv, setInv, invMes, setInvMes }) {
       <header style={sx.header} className="noprint">
         <div>
           <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Inventarios</div>
-          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{secMeta ? secMeta.nombre : "Panel del departamento"}</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{sec === "visualizacion" ? "Visualización de inventarios" : sec === "conciliacion_semanal" ? "Conciliación semanal" : secMeta ? secMeta.nombre : "Panel del departamento"}</div>
         </div>
         <nav style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {sec && <button onClick={irASecciones} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Secciones</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
         {!sec && <InvHome invMes={invMes} onEnter={setSec} />}
         {sec === "mensuales" && <InvMensuales invMes={invMes} setInvMes={setInvMes} draftFlushRef={draftFlushRef} usuario={usuario} />}
+        {sec === "diario" && <InvDiario />}
+        {sec === "presencial" && <InvPresencial />}
         {sec === "desechables" && <InvDesechables />}
+        {sec === "visualizacion" && <InvVisualizacion conteos={conteosDiarios} />}
+        {sec === "conciliacion_semanal" && <ConciliacionSemanal conteos={conteosDiarios} />}
         {secMeta && !secMeta.activa && <FranqPlaceholder sec={secMeta} />}
       </main>
     </>
@@ -4804,6 +6137,385 @@ function InvDesechables() {
   );
 }
 
+// Compara el teórico calculado contra lo que reportó la sucursal, producto
+// por producto, para la sucursal y fecha elegidas. Desde aquí también se
+// pone o corrige la "base inicial" de un producto (ajustes_inventario).
+function InvDiario() {
+  const { productos, conteos, ajustes, cargando, error, crearAjuste, crearProducto, eliminarProducto } = useInvBase();
+  const [sucursal, setSucursal] = useState("");
+  const [fecha, setFecha] = useState(aiHoyISO());
+  const [consumoPorFecha, setConsumoPorFecha] = useState({});
+  const [cargandoOdoo, setCargandoOdoo] = useState(false);
+  const [errorOdoo, setErrorOdoo] = useState("");
+  const [editando, setEditando] = useState(null);
+  const [baseValor, setBaseValor] = useState("");
+  const [baseMotivo, setBaseMotivo] = useState("");
+  const [guardandoBase, setGuardandoBase] = useState(false);
+  const [nuevoProducto, setNuevoProducto] = useState("");
+  const [guardandoProducto, setGuardandoProducto] = useState(false);
+
+  const sucursalesDisponibles = useMemo(() => [...SUCURSALES].sort(), []);
+
+  useEffect(() => {
+    if (!sucursal && sucursalesDisponibles.length) setSucursal(sucursalesDisponibles[0]);
+  }, [sucursalesDisponibles.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // El catálogo de productos ya es uno solo, compartido por todas las
+  // sucursales (se administra desde aquí o desde Cortes › Configuración) —
+  // ya no se filtra por la sucursal elegida arriba.
+  const productosSuc = [...productos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+  const conteosSuc = conteos.filter((c) => c.sucursal === sucursal);
+  const ajustesSuc = ajustes.filter((a) => a.sucursal === sucursal);
+
+  const agregarProducto = async () => {
+    const nombre = nuevoProducto.trim();
+    if (!nombre) return;
+    if (productosSuc.some((p) => (p.nombre || "").toLowerCase() === nombre.toLowerCase())) { setNuevoProducto(""); return; }
+    setGuardandoProducto(true);
+    try {
+      await crearProducto("GLOBAL", nombre);
+      setNuevoProducto("");
+    } catch {
+      alert("No se pudo agregar el producto — revisa tu conexión.");
+    }
+    setGuardandoProducto(false);
+  };
+
+  const quitarProducto = async (p) => {
+    if (!window.confirm(`¿Quitar "${p.nombre}" del catálogo? Ya no aparecerá en el conteo diario de ninguna sucursal.`)) return;
+    try {
+      await eliminarProducto(p.id);
+    } catch {
+      alert("No se pudo quitar el producto — revisa tu conexión.");
+    }
+  };
+
+  const basesPorProducto = {};
+  productosSuc.forEach((p) => { basesPorProducto[p.nombre] = ultimoAjusteDe(ajustesSuc, sucursal, p.nombre, fecha); });
+  const fechasBase = Object.values(basesPorProducto).filter(Boolean).map((a) => a.fecha);
+  const desdeOdoo = fechasBase.length ? fechasBase.reduce((a, b) => (a < b ? a : b)) : null;
+
+  useEffect(() => {
+    if (!sucursal || !desdeOdoo) { setConsumoPorFecha({}); return; }
+    let cancelado = false;
+    (async () => {
+      setCargandoOdoo(true); setErrorOdoo("");
+      try {
+        const desde = addDaysISO(desdeOdoo, 1);
+        const r = await apiFetch(`/api/odoo/consumo-ventas?sucursal=${encodeURIComponent(sucursal)}&desde=${desde <= fecha ? desde : fecha}&hasta=${fecha}`);
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || `Error ${r.status}`);
+        if (!cancelado) setConsumoPorFecha(body);
+      } catch (e) {
+        if (!cancelado) setErrorOdoo(e?.message || "No se pudo traer el consumo por ventas de Odoo.");
+      }
+      if (!cancelado) setCargandoOdoo(false);
+    })();
+    return () => { cancelado = true; };
+  }, [sucursal, fecha, desdeOdoo]);
+
+  const filas = productosSuc.map((p) => {
+    const ajuste = basesPorProducto[p.nombre];
+    const conteosProducto = conteosSuc.filter((c) => c.producto === p.nombre);
+    const teorico = calcularTeorico({ ajuste, conteosProducto, consumoPorFecha, producto: p.nombre, fechaHasta: fecha });
+    // El día puede tener varias filas: la del físico (fisico != null) y,
+    // aparte, cada mermas/transferencias/cortesías/otras que se haya
+    // agregado — se suman todas las salidas del día para mostrarlas juntas.
+    const filasHoy = conteosProducto.filter((c) => c.fecha === fecha);
+    const filaFisicoHoy = filasHoy.find((c) => c.fisico != null);
+    const fisico = filaFisicoHoy ? Number(filaFisicoHoy.fisico) || 0 : null;
+    const unidadFisico = filaFisicoHoy?.unidad;
+    const salidasHoy = {
+      mermas: filasHoy.reduce((s, c) => s + (Number(c.mermas) || 0), 0),
+      transferencias: filasHoy.reduce((s, c) => s + (Number(c.transferencias) || 0), 0),
+      cortesias: filasHoy.reduce((s, c) => s + (Number(c.cortesias) || 0), 0),
+      otras: filasHoy.reduce((s, c) => s + (Number(c.otras) || 0), 0),
+    };
+    const dif = teorico != null && fisico != null ? Math.round((fisico - teorico) * 100) / 100 : null;
+    const pct = teorico ? (dif / teorico) * 100 : (dif ? 100 : 0);
+    return { producto: p.nombre, ajuste, teorico, fisico, unidadFisico, dif, pct, salidasHoy };
+  });
+
+  const guardarBase = async (producto) => {
+    if (baseValor === "" || isNaN(Number(baseValor))) return;
+    setGuardandoBase(true);
+    try {
+      await crearAjuste({ sucursal, producto, fecha, cantidad: Number(baseValor), motivo: baseMotivo.trim() || "Base inicial", tipo: "inicial" });
+      setEditando(null); setBaseValor(""); setBaseMotivo("");
+    } catch {
+      alert("No se pudo guardar la base — revisa tu conexión.");
+    }
+    setGuardandoBase(false);
+  };
+
+  return (
+    <div>
+      <div style={sx.h1row}><h1 style={sx.h1}>Inventario Diario</h1><span style={{ fontSize: 12, color: T.muted }}>teórico vs físico reportado por sucursal</span></div>
+
+      {cargando ? (
+        <div style={{ fontSize: 13, color: T.muted }}>Cargando…</div>
+      ) : error ? (
+        <div style={{ background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.bad }}>{error}</div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <select className="sel" value={sucursal} onChange={(e) => setSucursal(e.target.value)} style={{ ...sx.sel, fontSize: 12.5, width: "auto", minWidth: 200 }}>
+              {sucursalesDisponibles.map((s) => <option key={s}>{s}</option>)}
+            </select>
+            <TField label="Fecha"><input type="date" value={fecha} max={aiHoyISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 12 }} /></TField>
+          </div>
+
+          <div style={{ ...sx.repCard, marginBottom: 16, padding: "14px 16px" }}>
+            <div style={{ fontWeight: 700, fontSize: 12.5, marginBottom: 10 }}>Catálogo de productos (compartido por todas las sucursales)</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: productosSuc.length ? 10 : 0, flexWrap: "wrap" }}>
+              <input
+                value={nuevoProducto}
+                onChange={(e) => setNuevoProducto(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && agregarProducto()}
+                placeholder="Ej. Nieve Yogurt Chica"
+                className="sel"
+                style={{ ...sx.sel, fontSize: 12.5, flex: 1, minWidth: 180 }}
+              />
+              <button onClick={agregarProducto} disabled={!nuevoProducto.trim() || guardandoProducto} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: nuevoProducto.trim() ? 1 : 0.5 }}>+ Agregar</button>
+            </div>
+            {productosSuc.length > 0 && (
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {productosSuc.map((p) => (
+                  <span key={p.id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 99, padding: "4px 6px 4px 11px", fontSize: 11.5, fontWeight: 600 }}>
+                    {p.nombre}
+                    <button onClick={() => quitarProducto(p)} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", padding: 2, color: T.bad }}><Ico name="X" size={12} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div style={{ fontSize: 10.5, color: T.muted, marginTop: 8, fontStyle: "italic" }}>Sucursales ya no puede agregar ni quitar productos por su cuenta — se maneja aquí.</div>
+          </div>
+
+          {errorOdoo && <div style={{ marginBottom: 14, background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.bad }}>{errorOdoo}</div>}
+          {cargandoOdoo && <div style={{ marginBottom: 14, fontSize: 12, color: T.muted }}>Trayendo consumo por ventas de Odoo…</div>}
+
+          {productosSuc.length === 0 ? (
+            <div style={{ ...sx.repCard, fontSize: 13, color: T.muted }}>Todavía no hay productos en el catálogo — agrégalos arriba.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 10 }}>
+              {filas.map((f) => (
+                <div key={f.producto} style={{ ...sx.repCard, padding: "14px 16px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <div style={{ fontWeight: 700, fontSize: 13.5 }}>{f.producto}</div>
+                    {!f.ajuste ? (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: T.warn, background: T.lineSoft, padding: "2px 8px", borderRadius: 99 }}>Sin base inicial</span>
+                    ) : f.fisico == null ? (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: T.muted, background: T.lineSoft, padding: "2px 8px", borderRadius: 99 }}>Sin capturar hoy</span>
+                    ) : (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, color: "#fff", background: invDifCol(f.pct), padding: "2px 8px", borderRadius: 99 }}>{Math.abs(f.pct) < 2 ? "OK" : Math.abs(f.pct) < 5 ? "Revisar" : "Descuadre"}</span>
+                    )}
+                  </div>
+
+                  {f.ajuste && (
+                    <div style={{ display: "flex", gap: 18, flexWrap: "wrap", marginTop: 10, fontSize: 12 }}>
+                      <span style={{ color: T.muted }}>Base ({f.ajuste.fecha}): <strong style={{ color: T.ink }}>{invCant(f.ajuste.cantidad)}</strong></span>
+                      <span style={{ color: T.muted }}>Teórico: <strong style={{ color: T.ink }}>{invCant(f.teorico)}</strong></span>
+                      <span style={{ color: T.muted }}>Físico reportado: <strong style={{ color: T.ink }}>{f.fisico == null ? "—" : `${invCant(f.fisico)} ${f.unidadFisico === "kg" ? "kg" : "unidades"}`}</strong></span>
+                      {f.dif != null && <span style={{ color: invDifCol(f.pct), fontWeight: 700 }}>Diferencia: {f.dif >= 0 ? "+" : ""}{invCant(f.dif)} ({f.pct >= 0 ? "+" : ""}{f.pct.toFixed(1)}%)</span>}
+                      {f.salidasHoy.mermas || f.salidasHoy.transferencias || f.salidasHoy.cortesias || f.salidasHoy.otras ? (
+                        <span style={{ color: T.muted }}>Mermas {invCant(f.salidasHoy.mermas)} · Transferencias {invCant(f.salidasHoy.transferencias)} · Cortesías {invCant(f.salidasHoy.cortesias)} · Otras {invCant(f.salidasHoy.otras)}</span>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {editando === f.producto ? (
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                      <input type="number" value={baseValor} onChange={(e) => setBaseValor(e.target.value)} placeholder="Cantidad" className="sel" style={{ ...sx.sel, fontSize: 12, width: 110 }} />
+                      <input value={baseMotivo} onChange={(e) => setBaseMotivo(e.target.value)} placeholder="Motivo (opcional)" className="sel" style={{ ...sx.sel, fontSize: 12, width: 220 }} />
+                      <button onClick={() => guardarBase(f.producto)} disabled={guardandoBase} className="actbtn" style={{ ...sx.actbtn, fontSize: 12, background: T.brand, color: "#fff", border: "none" }}>Guardar</button>
+                      <button onClick={() => { setEditando(null); setBaseValor(""); setBaseMotivo(""); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 12 }}>Cancelar</button>
+                    </div>
+                  ) : (
+                    <button onClick={() => { setEditando(f.producto); setBaseValor(f.ajuste ? String(f.ajuste.cantidad) : ""); }} style={{ marginTop: 10, background: "none", border: "none", color: T.brand, fontSize: 11.5, fontWeight: 700, cursor: "pointer", padding: 0 }}>
+                      {f.ajuste ? "Ajustar base ›" : "Poner base inicial ›"}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 14, fontStyle: "italic" }}>La base solo cambia aquí a mano o al confirmar un Inventario Presencial Mensual — el día a día no la mueve, nada más se descuenta el consumo de Odoo y lo que reportó cada sucursal (mermas, transferencias, cortesías, otras salidas).</div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Conteo físico independiente, una vez al mes: se captura aparte de lo que
+// reporta la sucursal día a día, se compara contra el teórico acumulado, y
+// al confirmar, ese conteo se vuelve la nueva base de cada producto —
+// exactamente como lo describe el proceso escrito.
+function InvPresencial() {
+  const { productos, conteos, ajustes, cargando, error, crearAjuste } = useInvBase();
+  const sucursalesDisponibles = useMemo(() => [...SUCURSALES].sort(), []);
+  const [sucursal, setSucursal] = useState("");
+  const [fecha, setFecha] = useState(aiHoyISO());
+  const [consumoPorFecha, setConsumoPorFecha] = useState({});
+  const [cargandoOdoo, setCargandoOdoo] = useState(false);
+  const [errorOdoo, setErrorOdoo] = useState("");
+  const [presencial, setPresencial] = useState({});
+  const [clasif, setClasif] = useState({});
+  const [guardando, setGuardando] = useState(false);
+  const [confirmado, setConfirmado] = useState(false);
+
+  useEffect(() => {
+    if (!sucursal && sucursalesDisponibles.length) setSucursal(sucursalesDisponibles[0]);
+  }, [sucursalesDisponibles.join("|")]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Catálogo global — igual para todas las sucursales, ya no se filtra por
+  // la que esté elegida arriba (ver InvDiario).
+  const productosSuc = [...productos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+  const conteosSuc = conteos.filter((c) => c.sucursal === sucursal);
+  const ajustesSuc = ajustes.filter((a) => a.sucursal === sucursal);
+
+  const basesPorProducto = {};
+  productosSuc.forEach((p) => { basesPorProducto[p.nombre] = ultimoAjusteDe(ajustesSuc, sucursal, p.nombre, fecha); });
+  const fechasBase = Object.values(basesPorProducto).filter(Boolean).map((a) => a.fecha);
+  const desdeOdoo = fechasBase.length ? fechasBase.reduce((a, b) => (a < b ? a : b)) : null;
+
+  useEffect(() => {
+    if (!sucursal || !desdeOdoo) { setConsumoPorFecha({}); return; }
+    let cancelado = false;
+    (async () => {
+      setCargandoOdoo(true); setErrorOdoo("");
+      try {
+        const desde = addDaysISO(desdeOdoo, 1);
+        const r = await apiFetch(`/api/odoo/consumo-ventas?sucursal=${encodeURIComponent(sucursal)}&desde=${desde <= fecha ? desde : fecha}&hasta=${fecha}`);
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || `Error ${r.status}`);
+        if (!cancelado) setConsumoPorFecha(body);
+      } catch (e) {
+        if (!cancelado) setErrorOdoo(e?.message || "No se pudo traer el consumo por ventas de Odoo.");
+      }
+      if (!cancelado) setCargandoOdoo(false);
+    })();
+    return () => { cancelado = true; };
+  }, [sucursal, fecha, desdeOdoo]);
+
+  const filas = productosSuc.map((p) => {
+    const ajuste = basesPorProducto[p.nombre];
+    const conteosProducto = conteosSuc.filter((c) => c.producto === p.nombre);
+    const teorico = calcularTeorico({ ajuste, conteosProducto, consumoPorFecha, producto: p.nombre, fechaHasta: fecha });
+    // Solo cuenta como "reportado" la fila del físico — las de mermas,
+    // transferencias, cortesías u otras no traen un conteo físico real.
+    const ultimoReportado = conteosProducto.filter((c) => c.fecha <= fecha && c.fisico != null).sort((a, b) => b.fecha.localeCompare(a.fecha))[0] || null;
+    const capturado = presencial[p.nombre];
+    const tieneCaptura = capturado !== undefined && capturado !== "";
+    const dif = teorico != null && tieneCaptura ? Math.round((Number(capturado) - teorico) * 100) / 100 : null;
+    return { producto: p.nombre, ajuste, teorico, ultimoReportado, capturado, tieneCaptura, dif };
+  });
+
+  const setCapturado = (producto, val) => setPresencial((prev) => ({ ...prev, [producto]: val }));
+  const setClas = (producto, campo, val) => setClasif((prev) => ({ ...prev, [producto]: { ...(prev[producto] || {}), [campo]: val } }));
+
+  const faltaClasificar = filas.filter((f) => f.dif != null && Math.abs(f.dif) > 0.0001 && !(clasif[f.producto] && clasif[f.producto].tipo));
+  const listo = filas.length > 0 && filas.every((f) => f.tieneCaptura) && faltaClasificar.length === 0;
+
+  const confirmar = async () => {
+    if (!listo) return;
+    if (!window.confirm(`¿Confirmar el inventario presencial de ${sucursal} (${fecha})?\n\nEl conteo capturado se vuelve la nueva base de cada producto a partir de esta fecha — ya no se puede deshacer desde aquí.`)) return;
+    setGuardando(true);
+    try {
+      for (const f of filas) {
+        const c = clasif[f.producto] || {};
+        let motivo = "Inventario presencial mensual";
+        if (f.dif != null && Math.abs(f.dif) > 0.0001) {
+          motivo += c.tipo === "justificado" ? ` — diferencia justificada: ${c.nota || "sin nota"}` : ` — diferencia no explicada${c.nota ? ": " + c.nota : ""}`;
+        }
+        await crearAjuste({ sucursal, producto: f.producto, fecha, cantidad: Number(f.capturado) || 0, motivo, tipo: "presencial" });
+      }
+      setConfirmado(true);
+      setPresencial({}); setClasif({});
+    } catch {
+      alert("No se pudo guardar el inventario presencial completo — revisa tu conexión e inténtalo de nuevo. Los productos que ya se alcanzaron a guardar no se repiten si lo intentas otra vez.");
+    }
+    setGuardando(false);
+  };
+
+  return (
+    <div>
+      <div style={sx.h1row}><h1 style={sx.h1}>Inventario Presencial Mensual</h1><span style={{ fontSize: 12, color: T.muted }}>conteo independiente · clasifica diferencias · ajusta la base</span></div>
+
+      {cargando ? (
+        <div style={{ fontSize: 13, color: T.muted }}>Cargando…</div>
+      ) : error ? (
+        <div style={{ background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.bad }}>{error}</div>
+      ) : productos.length === 0 ? (
+        <div style={{ ...sx.repCard, fontSize: 13, color: T.muted }}>Todavía no hay productos en el catálogo — agrégalos desde Inventario Diario o desde Cortes › Configuración › Productos de Inventario.</div>
+      ) : confirmado ? (
+        <div style={{ ...sx.repCard, display: "flex", alignItems: "center", gap: 10 }}>
+          <Ico name="CheckCircle2" size={20} color={T.ok} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5 }}>Inventario presencial confirmado</div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>{sucursal} · {fecha}. Esa cuenta ya es la nueva base de cada producto — el Inventario Diario parte de ahí de ahora en adelante.</div>
+          </div>
+          <button onClick={() => setConfirmado(false)} className="actbtn" style={{ ...sx.actbtn, marginLeft: "auto", background: T.ink }}>Hacer otro</button>
+        </div>
+      ) : (
+        <>
+          <div style={{ marginBottom: 16, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", justifyContent: "space-between" }}>
+            <select className="sel" value={sucursal} onChange={(e) => setSucursal(e.target.value)} style={{ ...sx.sel, fontSize: 12.5, width: "auto", minWidth: 200 }}>
+              {sucursalesDisponibles.map((s) => <option key={s}>{s}</option>)}
+            </select>
+            <TField label="Fecha del conteo presencial"><input type="date" value={fecha} max={aiHoyISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 12 }} /></TField>
+          </div>
+
+          {errorOdoo && <div style={{ marginBottom: 14, background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.bad }}>{errorOdoo}</div>}
+          {cargandoOdoo && <div style={{ marginBottom: 14, fontSize: 12, color: T.muted }}>Trayendo consumo por ventas de Odoo…</div>}
+
+          {productosSuc.length === 0 ? (
+            <div style={{ ...sx.repCard, fontSize: 13, color: T.muted }}>{sucursal} todavía no tiene productos registrados — agrégalos desde Inventario Diario.</div>
+          ) : (
+            <>
+              <div style={{ display: "grid", gap: 10 }}>
+                {filas.map((f) => (
+                  <div key={f.producto} style={{ ...sx.repCard, padding: "14px 16px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 700, fontSize: 13.5 }}>{f.producto}</div>
+                      <div style={{ display: "flex", gap: 18, fontSize: 12, color: T.muted, flexWrap: "wrap" }}>
+                        <span>Teórico: <strong style={{ color: T.ink }}>{f.teorico == null ? "sin base" : invCant(f.teorico)}</strong></span>
+                        {f.ultimoReportado && <span>Último reportado por sucursal ({f.ultimoReportado.fecha}): <strong style={{ color: T.ink }}>{invCant(f.ultimoReportado.fisico)} {f.ultimoReportado.unidad === "kg" ? "kg" : "unidades"}</strong></span>}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap" }}>
+                      <label style={{ fontSize: 11.5, fontWeight: 600, color: T.inkSoft }}>Conteo presencial:</label>
+                      <input type="number" value={f.capturado ?? ""} onChange={(e) => setCapturado(f.producto, e.target.value)} placeholder="0" className="sel" style={{ ...sx.sel, fontSize: 12.5, width: 110 }} />
+                      {f.dif != null && (
+                        <span style={{ fontWeight: 700, fontSize: 12.5, color: Math.abs(f.dif) < 0.0001 ? T.ok : invDifCol(f.teorico ? (f.dif / f.teorico) * 100 : 100) }}>
+                          Diferencia: {f.dif >= 0 ? "+" : ""}{invCant(f.dif)}
+                        </span>
+                      )}
+                    </div>
+                    {f.dif != null && Math.abs(f.dif) > 0.0001 && (
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 10, flexWrap: "wrap", background: T.paper, borderRadius: 9, padding: "9px 11px" }}>
+                        <div style={{ display: "inline-flex", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 8, padding: 3, gap: 2 }}>
+                          {[["justificado", "Justificada"], ["no_explicado", "No explicada"]].map(([k, l]) => (
+                            <button key={k} onClick={() => setClas(f.producto, "tipo", k)} style={{ padding: "5px 11px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 11.5, fontWeight: 600, background: (clasif[f.producto]?.tipo) === k ? T.ink : "transparent", color: (clasif[f.producto]?.tipo) === k ? "#fff" : T.muted }}>{l}</button>
+                          ))}
+                        </div>
+                        <input value={clasif[f.producto]?.nota ?? ""} onChange={(e) => setClas(f.producto, "nota", e.target.value)} placeholder="Nota (ej. producto vencido, error de captura…)" className="sel" style={{ ...sx.sel, fontSize: 11.5, flex: 1, minWidth: 200 }} />
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button onClick={confirmar} disabled={!listo || guardando} className="actbtn" style={{ ...sx.actbtn, marginTop: 16, padding: "11px 20px", fontSize: 13, opacity: listo ? 1 : 0.5, cursor: listo ? "pointer" : "default", background: T.brand }}>
+                {guardando ? "Guardando…" : "Confirmar inventario presencial y actualizar base"}
+              </button>
+              {!listo && filas.length > 0 && <div style={{ fontSize: 11, color: T.muted, marginTop: 8 }}>Captura el conteo de todos los productos y clasifica cualquier diferencia antes de confirmar.</div>}
+            </>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function InvHome({ invMes, onEnter }) {
   const mesActual = 5;
   const recs = invMes[mesActual] || {};
@@ -4832,7 +6544,6 @@ function InvHome({ invMes, onEnter }) {
 
   /* pendientes primero (acción), luego cargadas por mayor % de costo */
   const ordenadas = [...filas].sort((a, b) => (a.cargado === b.cargado ? b.pct - a.pct : a.cargado ? 1 : -1));
-  const restantes = INV_SECCIONES.filter((s) => s.key !== "mensuales");
 
   return (
     <div>
@@ -4894,23 +6605,548 @@ function InvHome({ invMes, onEnter }) {
         </div>
       </div>
 
-      {/* === Resto de secciones === */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
-        {restantes.map((s) => (
-          <button key={s.key} className={s.activa ? "rowbtn" : ""} onClick={() => s.activa && onEnter(s.key)} disabled={!s.activa} style={{ ...sx.areaCard, cursor: s.activa ? "pointer" : "default", opacity: s.activa ? 1 : 0.72 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ color: s.activa ? T.brand : T.muted, display: "flex" }}><Ico name={s.iconName} size={22} strokeWidth={1.8} /></span>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14 }}>{s.nombre}</div>
-                  <div style={{ fontSize: 11, color: T.muted }}>{s.desc}</div>
+      {/* === Por definir === */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }}>
+        <button
+          className="rowbtn"
+          onClick={() => onEnter("visualizacion")}
+          style={{ ...sx.areaCard, minHeight: 100, cursor: "pointer", textAlign: "left" }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>Visualización de inventarios</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Lo capturado por sucursal</div>
+        </button>
+        <button
+          className="rowbtn"
+          onClick={() => onEnter("conciliacion_semanal")}
+          style={{ ...sx.areaCard, minHeight: 100, cursor: "pointer", textAlign: "left" }}
+        >
+          <div style={{ fontWeight: 600, fontSize: 13.5 }}>Conciliación semanal</div>
+          <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Teórico vs reportado · jueves-miércoles</div>
+        </button>
+        {[2, 3].map((n) => (
+          <div key={n} style={{ ...sx.areaCard, minHeight: 100, border: `1px dashed ${T.line}` }} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Mismas cuatro salidas que captura Sucursales en su conteo diario — se usan
+// aquí solo para mostrar la etiqueta correcta (Mermas, Transferencias, etc.)
+// de cada movimiento capturado.
+const CAMPOS_SALIDA_INV = [
+  { clave: "mermas", etiqueta: "Mermas" },
+  { clave: "transferencias", etiqueta: "Transferencias" },
+  { clave: "cortesias", etiqueta: "Cortesías" },
+  { clave: "otras", etiqueta: "Otras salidas" },
+];
+function tipoDeMovimientoInv(c) {
+  const campo = CAMPOS_SALIDA_INV.find((x) => Number(c[x.clave]) > 0);
+  return campo ? { etiqueta: campo.etiqueta, valor: c[campo.clave] } : null;
+}
+const etiquetaUnidadInv = (u) => (u === "kg" ? "KG" : "PZA");
+
+// Pantalla de solo lectura para Gestión: lo que cada sucursal ha ido
+// capturando en Inventarios diarios, filtrable por sucursal y por fecha
+// (única o rango). No tiene "Nuevo conteo" — esa captura es de Sucursales.
+function InvVisualizacion({ conteos }) {
+  const [sucSel, setSucSel] = useState("__todas__");
+  const [modoFecha, setModoFecha] = useState("unica");
+  const [fechaUnica, setFechaUnica] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [verDetalle, setVerDetalle] = useState(null);
+
+  const lista = conteos || [];
+
+  const filtrados = lista.filter((c) => {
+    if (sucSel !== "__todas__" && c.sucursal !== sucSel) return false;
+    if (modoFecha === "unica") {
+      if (fechaUnica && c.fecha !== fechaUnica) return false;
+    } else {
+      if (desde && c.fecha < desde) return false;
+      if (hasta && c.fecha > hasta) return false;
+    }
+    return true;
+  });
+
+  const grupoMap = new Map();
+  filtrados.forEach((c) => {
+    const key = `${c.sucursal || "—"}|${c.fecha}`;
+    if (!grupoMap.has(key)) grupoMap.set(key, { sucursal: c.sucursal || "—", fecha: c.fecha, items: [] });
+    grupoMap.get(key).items.push(c);
+  });
+  const grupos = [...grupoMap.values()].sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, "es"));
+
+  const exportColumnas = [
+    { titulo: "Fecha", valor: (f) => f.fecha },
+    { titulo: "Sucursal", valor: (f) => f.sucursal },
+    { titulo: "Producto", valor: (f) => f.producto },
+    { titulo: "Tipo", valor: (f) => f.tipo },
+    { titulo: "Cantidad", valor: (f) => f.cantidad },
+    { titulo: "Unidad", valor: (f) => f.unidad },
+  ];
+  const exportFilas = [...filtrados]
+    .sort((a, b) => (a.fecha || "").localeCompare(b.fecha || "") || (a.sucursal || "").localeCompare(b.sucursal || "", "es") || (a.producto || "").localeCompare(b.producto || "", "es"))
+    .map((c) => {
+      if (c.fisico != null) return { fecha: c.fecha, sucursal: c.sucursal, producto: c.producto, tipo: "Físico", cantidad: c.fisico, unidad: etiquetaUnidadInv(c.unidad) };
+      const info = tipoDeMovimientoInv(c);
+      return { fecha: c.fecha, sucursal: c.sucursal, producto: c.producto, tipo: info ? info.etiqueta : "Movimiento", cantidad: info ? info.valor : 0, unidad: etiquetaUnidadInv(c.unidad) };
+    });
+
+  if (verDetalle) {
+    const grupo = grupoMap.get(`${verDetalle.sucursal}|${verDetalle.fecha}`);
+    return <InvVisualizacionDetalle sucursal={verDetalle.sucursal} fecha={verDetalle.fecha} items={grupo ? grupo.items : []} onCerrar={() => setVerDetalle(null)} />;
+  }
+
+  const hayFiltro = sucSel !== "__todas__" || fechaUnica || desde || hasta;
+
+  return (
+    <div>
+      <div style={sx.h1row}><h1 style={sx.h1}>Visualización de inventarios</h1></div>
+      <p style={{ fontSize: 13, color: T.muted, marginTop: -8, marginBottom: 20 }}>Lo que ha ido capturando cada sucursal en sus inventarios diarios.</p>
+
+      <div className="noprint" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end", marginBottom: 20 }}>
+        <div style={{ minWidth: 200 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Sucursal</div>
+          <select value={sucSel} onChange={(e) => setSucSel(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13 }}>
+            <option value="__todas__">Todas las sucursales</option>
+            {[...SUCURSALES].sort().map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Fecha</div>
+          <div style={{ display: "flex", gap: 4, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 9, padding: 3 }}>
+            <button
+              onClick={() => setModoFecha("unica")}
+              style={{ border: "none", padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: modoFecha === "unica" ? "#fff" : "transparent", color: modoFecha === "unica" ? T.ink : T.muted, boxShadow: modoFecha === "unica" ? "0 1px 3px rgba(0,0,0,.08)" : "none" }}
+            >
+              Fecha única
+            </button>
+            <button
+              onClick={() => setModoFecha("rango")}
+              style={{ border: "none", padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: modoFecha === "rango" ? "#fff" : "transparent", color: modoFecha === "rango" ? T.ink : T.muted, boxShadow: modoFecha === "rango" ? "0 1px 3px rgba(0,0,0,.08)" : "none" }}
+            >
+              Rango
+            </button>
+          </div>
+        </div>
+
+        {modoFecha === "unica" ? (
+          <input type="date" value={fechaUnica} onChange={(e) => setFechaUnica(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
+        ) : (
+          <>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Desde</div>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Hasta</div>
+              <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
+            </div>
+          </>
+        )}
+
+        {hayFiltro && (
+          <button onClick={() => { setSucSel("__todas__"); setFechaUnica(""); setDesde(""); setHasta(""); }} style={{ border: "none", background: "none", color: T.brand, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "8px 4px" }}>
+            Limpiar filtros
+          </button>
+        )}
+
+        <div className="noprint" style={{ marginLeft: "auto" }}>
+          <AIExportMenu titulo="Visualización de inventarios" columnas={exportColumnas} filas={exportFilas} />
+        </div>
+      </div>
+
+      <PrintHeader titulo="Visualización de inventarios" />
+
+      {grupos.length === 0 ? (
+        <div style={{ background: T.card, border: `1px dashed ${T.line}`, borderRadius: 12, padding: 20, fontSize: 13, color: T.muted, textAlign: "center" }}>
+          {hayFiltro ? "No hay conteos que coincidan con lo filtrado." : "Aún no hay conteos registrados."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {grupos.map((g) => {
+            const productos = [...new Set(g.items.map((it) => it.producto))];
+            return (
+              <div key={`${g.sucursal}|${g.fecha}`} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <strong style={{ color: T.ink }}>{g.fecha}</strong>
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.brand, background: T.brandSoft }}>{g.sucursal}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{productos.length} producto{productos.length === 1 ? "" : "s"} capturado{productos.length === 1 ? "" : "s"}</div>
+                  </div>
+                  <button
+                    onClick={() => setVerDetalle({ sucursal: g.sucursal, fecha: g.fecha })}
+                    style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}
+                  >
+                    Ver
+                  </button>
                 </div>
               </div>
-              {!s.activa && <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 8px", borderRadius: 99 }}>Por configurar</span>}
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InvVisualizacionDetalle({ sucursal, fecha, items, onCerrar }) {
+  const productosDelDia = [...new Set(items.map((it) => it.producto))].sort((a, b) => (a || "").localeCompare(b || "", "es"));
+  const filas = [];
+  productosDelDia.forEach((nombreProd) => {
+    const delProducto = items.filter((it) => it.producto === nombreProd);
+    const filaFisico = delProducto.find((f) => f.fisico != null);
+    if (filaFisico && Number(filaFisico.fisico) !== 0) filas.push({ producto: nombreProd, tipo: "Físico", cantidad: filaFisico.fisico, unidad: etiquetaUnidadInv(filaFisico.unidad) });
+    delProducto.filter((f) => f.fisico == null).forEach((m) => {
+      const info = tipoDeMovimientoInv(m);
+      if (info) filas.push({ producto: nombreProd, tipo: info.etiqueta, cantidad: info.valor, unidad: etiquetaUnidadInv(m.unidad) });
+    });
+  });
+
+  const columnasExport = [
+    { titulo: "Producto", valor: (f) => f.producto },
+    { titulo: "Tipo", valor: (f) => f.tipo },
+    { titulo: "Cantidad", valor: (f) => f.cantidad },
+    { titulo: "Unidad", valor: (f) => f.unidad },
+  ];
+
+  return (
+    <div>
+      <button onClick={onCerrar} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft, padding: 0, marginBottom: 14 }}>
+        ‹ Visualización de inventarios
+      </button>
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", display: "grid", gap: 16 }}>
+        <PrintHeader titulo={`Conteo ${fecha} · ${sucursal}`} />
+        <div className="noprint" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>Detalle del conteo</div>
+          <AIExportMenu titulo={`Conteo ${fecha} · ${sucursal}`} columnas={columnasExport} filas={filas} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, fontSize: 13 }}>
+          <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong style={{ color: T.ink }}>{fecha}</strong></div>
+          <div><div style={{ color: T.muted, fontSize: 11 }}>Sucursal</div><strong style={{ color: T.ink }}>{sucursal}</strong></div>
+        </div>
+        {filas.length === 0 ? (
+          <div style={{ fontSize: 12.5, color: T.muted }}>No hay nada capturado ese día.</div>
+        ) : (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: T.paper }}>
+                <th style={{ padding: "7px 12px", textAlign: "left" }}>Producto</th>
+                <th style={{ padding: "7px 12px", textAlign: "left" }}>Tipo</th>
+                <th style={{ padding: "7px 12px", textAlign: "left" }}>Cantidad</th>
+                <th style={{ padding: "7px 12px", textAlign: "left" }}>Unidad</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f, i) => (
+                <tr key={i}>
+                  <td style={{ padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>{f.producto}</td>
+                  <td style={{ padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>{f.tipo}</td>
+                  <td style={{ padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>{invCant(f.cantidad)}</td>
+                  <td style={{ padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>{f.unidad}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Conciliación semanal — segundo rediseño: es una pantalla de solo lectura,
+// nada se captura aquí. Todo sale automático de lo que ya existe: el físico
+// y las mermas del día vienen de lo que la sucursal ya reportó en sus
+// "Inventarios diarios" (conteos_diarios_inventario, misma fuente que usa
+// "Visualización de inventarios"), el inventario inicial del día es
+// automáticamente el físico del día anterior ya capturado ahí mismo, y las
+// ventas se traen de Odoo. Entradas de mercancía queda en 0 por ahora —
+// falta definir su fuente (Contpaqi). La diferencia de cada día se va
+// acumulando dentro de la semana (jueves a miércoles) y se reinicia cada
+// jueves.
+function diaAnteriorConFisico(conteos, sucursal, producto, fecha) {
+  return conteos
+    .filter((c) => c.sucursal === sucursal && c.producto === producto && c.fecha < fecha && c.fisico != null)
+    .sort((a, b) => b.fecha.localeCompare(a.fecha))[0] || null;
+}
+
+// Todo lo derivado de un día, leyendo directo de lo que la sucursal ya
+// capturó en sus inventarios diarios — nada de esto se escribe a mano aquí.
+function calcularDiaConciliacion({ conteos, sucursal, producto, fecha, consumoPorFecha }) {
+  const anterior = diaAnteriorConFisico(conteos, sucursal, producto, fecha);
+  const inventarioInicial = anterior ? Number(anterior.fisico) || 0 : 0;
+  const entradas = 0; // pendiente definir fuente (Contpaqi)
+  const ventas = Number(consumoPorFecha?.[fecha]?.[producto]) || 0;
+  const inventarioTeorico = Math.round((inventarioInicial + entradas - ventas) * 100) / 100;
+  const filasHoy = conteos.filter((c) => c.sucursal === sucursal && c.producto === producto && c.fecha === fecha);
+  const filaFisicoHoy = filasHoy.find((c) => c.fisico != null);
+  const inventarioFinal = filaFisicoHoy ? Number(filaFisicoHoy.fisico) || 0 : null;
+  const mermas = filasHoy.reduce((s, c) => s + (Number(c.mermas) || 0), 0);
+  const diferencia = inventarioFinal != null ? Math.round((inventarioFinal - (inventarioTeorico + mermas)) * 100) / 100 : null;
+  return { anterior, inventarioInicial, entradas, ventas, inventarioTeorico, inventarioFinal, mermas, diferencia };
+}
+
+// Suma la diferencia de cada día de la semana (jueves..fecha, sin incluir
+// "fecha") — es lo que se le suma a la diferencia de hoy para tener la
+// acumulada.
+function diferenciaAcumuladaPreviaConciliacion({ conteos, sucursal, producto, fecha, consumoPorFecha }) {
+  const inicioSemana = inicioSemanaInvISO(fecha);
+  let acumulada = 0;
+  let cursor = inicioSemana;
+  while (cursor < fecha) {
+    const dia = calcularDiaConciliacion({ conteos, sucursal, producto, fecha: cursor, consumoPorFecha });
+    if (dia.diferencia != null) acumulada += dia.diferencia;
+    cursor = sumarDiasInvISO(cursor, 1);
+  }
+  return Math.round(acumulada * 100) / 100;
+}
+
+function ConciliacionSemanal({ conteos }) {
+  const { productos, cargando: cargandoProductos, error: errorProductos } = useInvBase();
+  const [sucSel, setSucSel] = useState("__todas__");
+  const [modoFecha, setModoFecha] = useState("unica");
+  const [fechaUnica, setFechaUnica] = useState("");
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [verDetalle, setVerDetalle] = useState(null);
+
+  const productosSuc = [...productos].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+  const lista = conteos || [];
+
+  const filtrados = lista.filter((c) => {
+    if (sucSel !== "__todas__" && c.sucursal !== sucSel) return false;
+    if (modoFecha === "unica") {
+      if (fechaUnica && c.fecha !== fechaUnica) return false;
+    } else {
+      if (desde && c.fecha < desde) return false;
+      if (hasta && c.fecha > hasta) return false;
+    }
+    return true;
+  });
+
+  const dias = useMemo(() => {
+    const mapa = new Map();
+    filtrados.forEach((c) => {
+      const key = `${c.sucursal}|${c.fecha}`;
+      if (!mapa.has(key)) mapa.set(key, { sucursal: c.sucursal, fecha: c.fecha, productos: new Set() });
+      mapa.get(key).productos.add(c.producto);
+    });
+    return [...mapa.values()]
+      .map((d) => ({ ...d, productos: d.productos.size }))
+      .sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, "es"));
+  }, [filtrados]);
+
+  const hayFiltro = sucSel !== "__todas__" || fechaUnica || desde || hasta;
+
+  if (verDetalle) {
+    return <ConciliacionSemanalDetalle sucursal={verDetalle.sucursal} fecha={verDetalle.fecha} productos={productosSuc} conteos={lista} onCerrar={() => setVerDetalle(null)} />;
+  }
+
+  return (
+    <div>
+      <div style={sx.h1row}><h1 style={sx.h1}>Conciliación semanal</h1></div>
+      <p style={{ fontSize: 13, color: T.muted, marginTop: -8, marginBottom: 20 }}>Inventario inicial, entradas, ventas, teórico, físico final, mermas y diferencia — todo automático, acumulado de jueves a miércoles. Nada se captura aquí.</p>
+
+      <div className="noprint" style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-end", marginBottom: 20 }}>
+        <div style={{ minWidth: 200 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Sucursal</div>
+          <select value={sucSel} onChange={(e) => setSucSel(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13 }}>
+            <option value="__todas__">Todas las sucursales</option>
+            {[...SUCURSALES].sort().map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Fecha</div>
+          <div style={{ display: "flex", gap: 4, background: T.paper, border: `1px solid ${T.line}`, borderRadius: 9, padding: 3 }}>
+            <button
+              onClick={() => setModoFecha("unica")}
+              style={{ border: "none", padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: modoFecha === "unica" ? "#fff" : "transparent", color: modoFecha === "unica" ? T.ink : T.muted, boxShadow: modoFecha === "unica" ? "0 1px 3px rgba(0,0,0,.08)" : "none" }}
+            >
+              Fecha única
+            </button>
+            <button
+              onClick={() => setModoFecha("rango")}
+              style={{ border: "none", padding: "6px 12px", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", background: modoFecha === "rango" ? "#fff" : "transparent", color: modoFecha === "rango" ? T.ink : T.muted, boxShadow: modoFecha === "rango" ? "0 1px 3px rgba(0,0,0,.08)" : "none" }}
+            >
+              Rango
+            </button>
+          </div>
+        </div>
+
+        {modoFecha === "unica" ? (
+          <input type="date" value={fechaUnica} onChange={(e) => setFechaUnica(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
+        ) : (
+          <>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Desde</div>
+              <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
             </div>
-            <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${T.lineSoft}`, fontSize: 12, fontWeight: 600, color: s.activa ? T.brand : T.muted }}>{s.activa ? "Ver sección ›" : "Próximamente"}</div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: T.inkSoft, marginBottom: 5 }}>Hasta</div>
+              <input type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} className="sel" style={{ ...sx.sel, fontSize: 13, width: "auto" }} />
+            </div>
+          </>
+        )}
+
+        {hayFiltro && (
+          <button onClick={() => { setSucSel("__todas__"); setFechaUnica(""); setDesde(""); setHasta(""); }} style={{ border: "none", background: "none", color: T.brand, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit", padding: "8px 4px" }}>
+            Limpiar filtros
           </button>
-        ))}
+        )}
+      </div>
+
+      {cargandoProductos ? (
+        <div style={{ fontSize: 13, color: T.muted }}>Cargando…</div>
+      ) : errorProductos ? (
+        <div style={{ background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, color: T.bad }}>{errorProductos}</div>
+      ) : dias.length === 0 ? (
+        <div style={{ background: T.card, border: `1px dashed ${T.line}`, borderRadius: 12, padding: 20, fontSize: 13, color: T.muted, textAlign: "center" }}>
+          {hayFiltro ? "No hay conteos que coincidan con lo filtrado." : "Todavía no hay inventarios diarios capturados por las sucursales."}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {dias.map((d) => (
+            <div key={`${d.sucursal}|${d.fecha}`} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <strong style={{ color: T.ink }}>{d.fecha}</strong>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.brand, background: T.brandSoft }}>{d.sucursal}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{d.productos} producto{d.productos === 1 ? "" : "s"} capturado{d.productos === 1 ? "" : "s"}</div>
+                </div>
+                <button
+                  onClick={() => setVerDetalle({ sucursal: d.sucursal, fecha: d.fecha })}
+                  style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}
+                >
+                  Ver
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConciliacionSemanalDetalle({ sucursal, fecha, productos, conteos, onCerrar }) {
+  const inicioSemana = inicioSemanaInvISO(fecha);
+  const [consumoPorFecha, setConsumoPorFecha] = useState({});
+  const [cargandoOdoo, setCargandoOdoo] = useState(false);
+  const [errorOdoo, setErrorOdoo] = useState("");
+
+  useEffect(() => {
+    let cancelado = false;
+    (async () => {
+      setCargandoOdoo(true); setErrorOdoo("");
+      try {
+        const r = await apiFetch(`/api/odoo/consumo-ventas?sucursal=${encodeURIComponent(sucursal)}&desde=${inicioSemana}&hasta=${fecha}`);
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(body.error || `Error ${r.status}`);
+        if (!cancelado) setConsumoPorFecha(body);
+      } catch (e) {
+        if (!cancelado) setErrorOdoo(e?.message || "No se pudo traer el consumo por ventas de Odoo.");
+      }
+      if (!cancelado) setCargandoOdoo(false);
+    })();
+    return () => { cancelado = true; };
+  }, [sucursal, fecha, inicioSemana]);
+
+  const productosDelDia = new Set(conteos.filter((c) => c.sucursal === sucursal && c.fecha === fecha).map((c) => c.producto));
+  const productosMostrar = productos.filter((p) => productosDelDia.has(p.nombre));
+
+  const filas = productosMostrar.map((p) => {
+    const dia = calcularDiaConciliacion({ conteos, sucursal, producto: p.nombre, fecha, consumoPorFecha });
+    const acumuladaPrevia = diferenciaAcumuladaPreviaConciliacion({ conteos, sucursal, producto: p.nombre, fecha, consumoPorFecha });
+    const diferenciaAcumulada = dia.diferencia != null ? Math.round((acumuladaPrevia + dia.diferencia) * 100) / 100 : null;
+    const precio = p.precio != null && p.precio !== "" ? Number(p.precio) : null;
+    const diferenciaDinero = dia.diferencia != null && precio != null ? Math.round(dia.diferencia * precio * 100) / 100 : null;
+    return { producto: p.nombre, ...dia, diferenciaAcumulada, diferenciaDinero };
+  });
+
+  const columnasExport = [
+    { titulo: "Producto", valor: (f) => f.producto },
+    { titulo: "Inv. inicial", valor: (f) => f.inventarioInicial },
+    { titulo: "Entradas", valor: (f) => f.entradas },
+    { titulo: "Ventas", valor: (f) => f.ventas },
+    { titulo: "Inv. teórico", valor: (f) => f.inventarioTeorico },
+    { titulo: "Inv. final", valor: (f) => (f.inventarioFinal == null ? "—" : f.inventarioFinal) },
+    { titulo: "Mermas", valor: (f) => f.mermas },
+    { titulo: "Diferencia", valor: (f) => (f.diferencia == null ? "—" : f.diferencia) },
+    { titulo: "Diferencia $", valor: (f) => (f.diferenciaDinero == null ? "—" : f.diferenciaDinero) },
+    { titulo: "Dif. acumulada", valor: (f) => (f.diferenciaAcumulada == null ? "—" : f.diferenciaAcumulada) },
+  ];
+
+  return (
+    <div>
+      <button onClick={onCerrar} className="navbtn noprint" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft, padding: 0, marginBottom: 14 }}>
+        ‹ Conciliación semanal
+      </button>
+
+      <div className="noprint" style={{ marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", fontSize: 13 }}>
+          <div><span style={{ color: T.muted }}>Sucursal: </span><strong style={{ color: T.ink }}>{sucursal}</strong></div>
+          <div><span style={{ color: T.muted }}>Fecha: </span><strong style={{ color: T.ink }}>{fecha}</strong></div>
+          <div><span style={{ color: T.muted }}>Semana: </span><strong style={{ color: T.ink }}>{rangoSemanaInv(inicioSemana, sumarDiasInvISO(inicioSemana, 6))}</strong></div>
+        </div>
+        <AIExportMenu titulo={`Conciliación ${fecha} · ${sucursal}`} columnas={columnasExport} filas={filas} />
+      </div>
+
+      <PrintHeader titulo={`Conciliación ${fecha} · ${sucursal}`} />
+
+      {errorOdoo && <div className="noprint" style={{ marginBottom: 14, background: T.badSoft, border: `1px solid ${T.bad}`, borderRadius: 10, padding: "10px 14px", fontSize: 12, color: T.bad }}>{errorOdoo}</div>}
+      {cargandoOdoo && <div className="noprint" style={{ marginBottom: 14, fontSize: 12, color: T.muted }}>Trayendo ventas de Odoo…</div>}
+
+      {filas.length === 0 ? (
+        <div style={{ ...sx.repCard, fontSize: 13, color: T.muted }}>No hay nada capturado ese día.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
+            <thead>
+              <tr style={{ background: T.paper }}>
+                <th style={{ padding: "7px 10px", textAlign: "left" }}>Producto</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Inv. inicial</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Entradas</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Ventas</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Inv. teórico</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Inv. final</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Mermas</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Diferencia</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Diferencia $</th>
+                <th style={{ padding: "7px 10px", textAlign: "right" }}>Dif. acumulada</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filas.map((f) => (
+                <tr key={f.producto}>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, fontWeight: 600 }}>{f.producto}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{invCant(f.inventarioInicial)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{invCant(f.entradas)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{invCant(f.ventas)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", fontWeight: 600 }}>{invCant(f.inventarioTeorico)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{f.inventarioFinal == null ? "—" : invCant(f.inventarioFinal)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{invCant(f.mermas)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", fontWeight: 700, color: f.diferencia == null ? T.muted : f.diferencia === 0 ? T.ok : invDifCol((f.diferencia / (f.inventarioTeorico || 1)) * 100) }}>
+                    {f.diferencia == null ? "—" : `${f.diferencia >= 0 ? "+" : ""}${invCant(f.diferencia)}`}
+                  </td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right" }}>{f.diferenciaDinero == null ? "—" : aiMoney(f.diferenciaDinero)}</td>
+                  <td style={{ padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "right", fontWeight: 600 }}>{f.diferenciaAcumulada == null ? "—" : invCant(f.diferenciaAcumulada)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="noprint" style={{ fontSize: 11, color: T.muted, marginTop: 14, fontStyle: "italic" }}>
+        Entradas de mercancía: en 0 por ahora — falta definir si se conecta a Contpaqi (como Odoo con ventas). Diferencia en $: aparece "—" hasta que se cargue el precio de cada producto.
       </div>
     </div>
   );
@@ -5808,7 +8044,7 @@ const progTotales = (anio, mes, progStore, formato) => {
   return (formato || "Propia") === "Propia" ? POE_DEF : { Apertura: 0, Operativa: 0, Cierre: 0 };
 };
 
-function AuditoriasRemotas() {
+function AuditoriasRemotas({ onCerrarSesion }) {
   const [nuevo, setNuevo] = useState(false);
   const [progOpen, setProgOpen] = useState(false);
   const [mes, setMes] = useState(6);
@@ -5824,6 +8060,7 @@ function AuditoriasRemotas() {
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {(nuevo || progOpen) && <button onClick={() => { setNuevo(false); setProgOpen(false); }} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Volver</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
@@ -6415,7 +8652,7 @@ const AUDITORIAS = [
   { id: "AU-08", suc: "Walmart San Sebastián", origen: "Remota", tipo: "Operativa", fecha: dOff(-3), calif: 86, incidencias: [{ desc: "Uniforme incompleto en barra", plan: "Supervisar dotación de uniformes", resp: "Viridiana", limite: dOff(2), cerrado: false }] },
 ];
 
-function SucursalesPropias() {
+function SucursalesPropias({ onCerrarSesion }) {
   const [sec, setSec] = useState(null);
   const secMeta = OP_SECCIONES.find((s) => s.key === sec);
   return (
@@ -6427,6 +8664,7 @@ function SucursalesPropias() {
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {sec && <button onClick={() => setSec(null)} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Secciones</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
@@ -7060,7 +9298,7 @@ function Expedientes() {
   );
 }
 
-function CapitalHumano({ cuadro, setCuadro }) {
+function CapitalHumano({ cuadro, setCuadro, onCerrarSesion }) {
   const [sec, setSec] = useState(null);
   const [banco, setBanco] = useState(BANCO_SEED);
   const moverABanco = (cand, origen, municipio) => setBanco((p) => (p.some((x) => x.nombre === cand.nombre) ? p : [{ id: Date.now() + Math.random(), nombre: cand.nombre, fuente: cand.fuente, puesto: origen.puesto, municipio: municipio || MUNICIPIOS_CH[0], origen: origen.sucursal, fecha: new Date().toISOString().slice(0, 10) }, ...p]));
@@ -7074,6 +9312,7 @@ function CapitalHumano({ cuadro, setCuadro }) {
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {sec && <button onClick={() => setSec(null)} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Secciones</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
@@ -8141,7 +10380,7 @@ function RelacionReportes() {
 /* ============================================================
    DEPARTAMENTO DE FRANQUICIAS
    ============================================================ */
-function Franquicias() {
+function Franquicias({ onCerrarSesion }) {
   const [franqs, setFranqs] = useState(FRANQUICIAS);
   const [sec, setSec] = useState(null);
   const secMeta = FRANQ_SECCIONES.find((s) => s.key === sec);
@@ -8159,6 +10398,7 @@ function Franquicias() {
         </div>
         <nav style={{ display: "flex", gap: 4, alignItems: "center" }}>
           {sec && <button onClick={() => setSec(null)} className="navbtn" style={{ ...sx.navbtn, background: "transparent", color: T.inkSoft }}>‹ Secciones</button>}
+          <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
       <main style={sx.main}>
@@ -9330,6 +11570,13 @@ const CSS = `
 @media print {
   .noprint { display: none !important; }
   main { padding: 0 !important; }
+}
+/* Lo opuesto a .noprint: solo se ve al imprimir — para mostrar como texto
+   plano el valor de un campo que en pantalla es un <input> editable (una
+   caja con flechitas de número no se ve bien impresa). */
+.onlyprint { display: none; }
+@media print {
+  .onlyprint { display: inline !important; }
 }
 .print-header { display: none; }
 @media print {

@@ -4,9 +4,83 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Plataforma Operativa — Frutal Yogurt</title>
+<style>
+  /* El navegador le pone 8px de margen en blanco a "body" por default — sin
+     esto se veía como un contorno blanco alrededor de toda la página. */
+  html, body { margin: 0; padding: 0; }
+  #root { min-height: 100vh; }
+
+  /* ---- Personalización de cuenta (tema, tipografía, fondo, densidad) ----
+     Se controla con clases/variables en <html>, puestas por
+     frontend/src/preferences.js. Va aquí (no dentro de App.jsx ni
+     SucursalApp.jsx) para que aplique igual en las dos apps sin duplicar
+     nada, y para que ya esté activo desde antes de iniciar sesión. */
+  :root {
+    --fy-font: 'Plus Jakarta Sans', system-ui, sans-serif;
+    --fy-bg-image: none;
+    --fy-bg-tint: 1;
+  }
+  body, body * { font-family: var(--fy-font) !important; }
+
+  /* El fondo elegido se pinta detrás de toda la app, con un tinte del color
+     de fondo normal encima para que el texto se siga leyendo bien — entre
+     más baja la intensidad que elija la persona, más se ve la foto. */
+  #fy-app-shell {
+    background-color: #F1F3F2;
+    background-image: linear-gradient(rgba(241, 243, 242, var(--fy-bg-tint)), rgba(241, 243, 242, var(--fy-bg-tint))), var(--fy-bg-image);
+    background-size: cover, cover;
+    background-position: center, center;
+    background-attachment: fixed, fixed;
+    background-repeat: no-repeat, no-repeat;
+  }
+
+  /* Modo oscuro: en vez de recolorear a mano miles de estilos ya escritos,
+     se invierten los colores de toda la app (truco estándar para apps
+     grandes) y luego se vuelven a invertir las imágenes reales (logo, fotos)
+     para que esas sí se sigan viendo con sus colores normales.
+     El filtro se le pone a #fy-app-shell (el interior de cada app) y NO a
+     #root — así la burbuja de Cuenta y el modal de Personalizar, que están
+     fuera de ese contenedor, no heredan el "containing block" que crea
+     "filter" en CSS (si no, con la página con scroll se quedarían fijos al
+     contenedor y no a la pantalla). */
+  html.fy-dark { background: #0b0c0d; }
+  html.fy-dark #fy-app-shell { filter: invert(1) hue-rotate(180deg); }
+  html.fy-dark #fy-app-shell img { filter: invert(1) hue-rotate(180deg); }
+
+  /* Densidad compacta: encoge un poco toda la app para que quepa más en
+     pantalla (funciona en Chrome/Edge, que es lo que se usa aquí). */
+  html.fy-compacta #fy-app-shell { zoom: 0.9; }
+</style>
 </head>
 <body>
 <div id="root"></div>
+<script>
+  // Aplica lo último guardado ANTES de que React monte, para que no haya un
+  // parpadeo del tema claro por una fracción de segundo al recargar.
+  (function () {
+    try {
+      var raw = localStorage.getItem("fy_prefs");
+      if (!raw) return;
+      var p = JSON.parse(raw);
+      var root = document.documentElement;
+      if (p.tema === "oscuro") root.classList.add("fy-dark");
+      if (p.densidad === "compacta") root.classList.add("fy-compacta");
+      var FUENTES = {
+        jakarta: "'Plus Jakarta Sans', system-ui, sans-serif",
+        inter: "'Inter', system-ui, sans-serif",
+        sistema: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        georgia: "Georgia, 'Times New Roman', serif",
+        mono: "'JetBrains Mono', ui-monospace, 'Courier New', monospace",
+      };
+      if (p.fuente && FUENTES[p.fuente]) root.style.setProperty("--fy-font", FUENTES[p.fuente]);
+      if (p.fondoImagen) {
+        var tinte = Math.max(0, Math.min(100, 100 - (Number(p.fondoIntensidad) || 0))) / 100;
+        root.style.setProperty("--fy-bg-image", "url(" + p.fondoImagen + ")");
+        root.style.setProperty("--fy-bg-tint", String(0.15 + tinte * 0.75));
+      }
+    } catch (e) {}
+  })();
+</script>
 <script type="module" src="/src/main.jsx"></script>
 </body>
 </html>

@@ -1,58 +1,37 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import Login from "./Login.jsx";
-import { getToken, getUsername, clearSession } from "./auth";
+import SucursalApp from "./SucursalApp.jsx";
+import { getToken, getRole, clearSession } from "./auth";
+import { getPrefsLocal, applyPrefs, loadPrefsDesdeServidor, limpiarPrefsLocal } from "./preferences";
 
 function Root() {
   const [autenticado, setAutenticado] = useState(!!getToken());
+
+  // Aplica lo último guardado en cuanto hay sesión (index.html ya puso lo
+  // que había en caché para el primer dibujo; aquí se refresca por si se
+  // cambió algo desde otro dispositivo) — nunca truena la pantalla si falla.
+  useEffect(() => {
+    if (!autenticado) return;
+    applyPrefs(getPrefsLocal());
+    loadPrefsDesdeServidor().catch(() => {});
+  }, [autenticado]);
 
   if (!autenticado) {
     return <Login onSuccess={() => setAutenticado(true)} />;
   }
 
-  return (
-    <div style={{ position: "relative", minHeight: "100%" }}>
-      <div
-        style={{
-          position: "fixed",
-          bottom: 12,
-          right: 12,
-          zIndex: 9999,
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          background: "#16161B",
-          color: "#fff",
-          borderRadius: 99,
-          padding: "6px 6px 6px 14px",
-          fontSize: 11.5,
-          fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-          boxShadow: "0 6px 20px rgba(0,0,0,.2)",
-        }}
-        className="noprint"
-      >
-        <span style={{ opacity: 0.75 }}>{getUsername()}</span>
-        <button
-          onClick={() => { clearSession(); setAutenticado(false); }}
-          style={{
-            border: "none",
-            background: "rgba(255,255,255,.12)",
-            color: "#fff",
-            borderRadius: 99,
-            padding: "6px 12px",
-            fontSize: 11.5,
-            fontWeight: 600,
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          Salir
-        </button>
-      </div>
-      <App />
-    </div>
-  );
+  const cerrarSesion = () => { clearSession(); limpiarPrefsLocal(); setAutenticado(false); };
+
+  // Un usuario tipo "sucursal" solo ve su propia pantalla — nada del menú
+  // completo. El backend además bloquea del lado del servidor que toque
+  // cualquier otra cosa, aunque abriera las herramientas del navegador.
+  if (getRole() === "sucursal") {
+    return <SucursalApp />;
+  }
+
+  return <App onCerrarSesion={cerrarSesion} />;
 }
 
 createRoot(document.getElementById("root")).render(<Root />);

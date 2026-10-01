@@ -17,7 +17,13 @@ export function usePersistedCollection(name) {
   useEffect(() => {
     let cancelado = false;
     apiFetch(`/api/collections/${name}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        // Si el servidor respondió con error (403, 500, etc.) "data" no es un
+        // arreglo — seguimos con [] en vez de tronar toda la pantalla.
+        if (!r.ok || !Array.isArray(data)) throw new Error(data?.error || `No se pudo cargar "${name}" (${r.status})`);
+        return data;
+      })
       .then((data) => {
         if (cancelado) return;
         prevRef.current = data;
@@ -77,7 +83,11 @@ export function usePersistedList(name, fallback) {
   useEffect(() => {
     let cancelado = false;
     apiFetch(`/api/lists/${name}`)
-      .then((r) => r.json())
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) throw new Error(data?.error || `No se pudo cargar "${name}" (${r.status})`);
+        return data;
+      })
       .then((data) => {
         if (cancelado) return;
         if (Array.isArray(data) && data.length > 0) {
@@ -108,5 +118,29 @@ export function usePersistedList(name, fallback) {
     });
   };
 
-  return [items, setItems];
+  // Actualiza el estado local SIN mandar el PUT (que es solo-admin). Sirve
+  // para reflejar en pantalla algo que ya se guardó por otra vía — por
+  // ejemplo, después de agregarValorLista().
+  const setItemsLocal = (updater) => {
+    setItemsRaw((prev) => (typeof updater === "function" ? updater(prev) : updater));
+  };
+
+  return [items, setItems, setItemsLocal];
+}
+
+/**
+ * Agrega un solo valor a una lista simple sin necesitar permisos de admin —
+ * usa la ruta dedicada del backend que solo permite agregar (nunca borrar ni
+ * reemplazar toda la lista). Regresa la lista completa ya actualizada, para
+ * poder reflejarla con setItemsLocal.
+ */
+export async function agregarValorLista(name, valor) {
+  const r = await apiFetch(`/api/lists/${name}/agregar`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ valor }),
+  });
+  const data = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(data?.error || `No se pudo agregar "${valor}" a "${name}"`);
+  return data;
 }
