@@ -358,7 +358,9 @@ initDb()
   .then(() => migrarProductosInventarioAGlobal())
   .then(() => borrarConciliacionSemanalVieja())
   .then(() => {
-    app.listen(PORT, () => {
+    // Host explícito 0.0.0.0: Render escanea el puerto por IPv4 y no lo
+    // detectaba con el bind por defecto (":::"), así que el deploy expiraba.
+    app.listen(PORT, "0.0.0.0", () => {
       console.log(`Frutal Yogurt backend escuchando en http://localhost:${PORT}`);
     });
   })
