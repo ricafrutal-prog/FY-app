@@ -11,6 +11,9 @@ export const ODOO_SUCURSAL_A_CONFIG = {
   "Terreno": 7,
   "S. Apodaca 2": 8,
   "S. Apodaca 3": 9,
+  // Mismos puntos de venta, con el nombre que aparece en el catálogo de Cortes.
+  "Apodaca 2": 8,
+  "Apodaca 3": 9,
   "Escobedo Lineal": 10,
   "Berneses": 11,
   "Juárez Centro": 12,
