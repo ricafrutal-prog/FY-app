@@ -2481,8 +2481,28 @@ const aiSumarDiaDDMMAA = (f) => {
 /* Tabla Denominación / Cantidad / Importe — la misma lógica de la hoja física de conteo.
    Con `denoms` se le pasa una lista distinta (el conteo usa billetes + monedas + centavos)
    y con `agrupado` se separan visualmente los tres bloques. */
-function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agrupado, conMonedas }) {
+function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agrupado, conMonedas, teoricos, difs }) {
   const lista = denoms || AI_DENOMINACIONES;
+  // Columnas opcionales de solo lectura: "Denominación teórica" a la izquierda y
+  // "Diferencia en denominación" a la derecha. Se calculan afuera; aquí solo se pintan.
+  const conTeo = !!teoricos, conDif = !!difs;
+  const nCols = 3 + (conTeo ? 1 : 0) + (conDif ? 1 : 0);
+  // En la vista con columnas teórico/diferencia (conteo consolidado) todo va centrado;
+  // el resto de usos de la tabla conserva su alineación de siempre.
+  const centrar = conTeo;
+  const alIzq = centrar ? "center" : "left";
+  const alDer = centrar ? "center" : "right";
+  const margenInput = centrar ? "0 auto" : "0 0 0 auto";
+  const celdaTeo = (d) => {
+    if (!conTeo) return null;
+    const v = Number(teoricos[d]) || 0;
+    return <td style={{ padding: "6px 12px", textAlign: "center", fontWeight: 700, background: T.paper, borderBottom: `1px solid ${T.lineSoft}` }}>{d === AI_MONEDAS_KEY ? aiMoney(v) : v}</td>;
+  };
+  const celdaDif = (d) => {
+    if (!conDif) return null;
+    const v = Number(difs[d]) || 0;
+    return <td style={{ padding: "6px 12px", textAlign: "center", fontWeight: 700, background: T.paper, color: v === 0 ? T.ok : T.bad, borderBottom: `1px solid ${T.lineSoft}` }}>{`${v > 0 ? "+" : ""}${d === AI_MONEDAS_KEY ? aiMoney(v) : v}`}</td>;
+  };
   const monedas = cantidades[AI_MONEDAS_KEY] === undefined || cantidades[AI_MONEDAS_KEY] === null ? "" : cantidades[AI_MONEDAS_KEY];
   const total = conMonedas ? aiTotalConteo(cantidades) : aiTotalTabla(cantidades, lista);
   let grupoPrevio = null;
@@ -2491,9 +2511,11 @@ function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agru
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
         <thead>
           <tr style={{ background: T.paper }}>
-            <th style={{ padding: "7px 12px", textAlign: "left", fontWeight: 700, color: T.inkSoft }}>Denominación</th>
-            <th style={{ padding: "7px 12px", textAlign: "right", fontWeight: 700, color: T.inkSoft }}>Cantidad</th>
-            <th style={{ padding: "7px 12px", textAlign: "right", fontWeight: 700, color: T.inkSoft }}>Importe</th>
+            {conTeo && <th style={{ padding: "7px 12px", textAlign: "center", fontWeight: 700, color: T.inkSoft }}>Cantidad teórica</th>}
+            <th style={{ padding: "7px 12px", textAlign: alIzq, fontWeight: 700, color: T.inkSoft }}>Denominación</th>
+            <th style={{ padding: "7px 12px", textAlign: alDer, fontWeight: 700, color: T.inkSoft }}>Cantidad</th>
+            <th style={{ padding: "7px 12px", textAlign: alDer, fontWeight: 700, color: T.inkSoft }}>Importe</th>
+            {conDif && <th style={{ padding: "7px 12px", textAlign: "center", fontWeight: 700, color: T.inkSoft }}>Diferencia en cantidad</th>}
           </tr>
         </thead>
         <tbody>
@@ -2507,17 +2529,19 @@ function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agru
               <Fragment key={d}>
                 {encabezado && (
                   <tr>
-                    <td colSpan={3} style={{ padding: "5px 12px", background: T.lineSoft, fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{g}</td>
+                    <td colSpan={nCols} style={{ padding: "5px 12px", background: T.lineSoft, fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>{g}</td>
                   </tr>
                 )}
                 <tr>
-                  <td style={{ padding: "6px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>{aiEtiquetaDenom(d)}</td>
-                  <td style={{ padding: "4px 8px", textAlign: "right", borderBottom: `1px solid ${T.lineSoft}` }}>
+                  {celdaTeo(d)}
+                  <td style={{ padding: "6px 12px", textAlign: alIzq, borderBottom: `1px solid ${T.lineSoft}` }}>{aiEtiquetaDenom(d)}</td>
+                  <td style={{ padding: "4px 8px", textAlign: alDer, borderBottom: `1px solid ${T.lineSoft}` }}>
                     {soloLectura ? <span>{c === "" ? "—" : c}</span> : (
-                      <input data-nav type="number" min="0" value={c} onChange={(e) => onChange(d, e.target.value.replace(/-/g, ""))} onWheel={(e) => e.currentTarget.blur()} placeholder="0" className="sel" style={{ ...sx.sel, fontSize: 12.5, width: 72, textAlign: "right", padding: "5px 8px", marginLeft: "auto" }} />
+                      <input data-nav type="number" min="0" value={c} onChange={(e) => onChange(d, e.target.value.replace(/-/g, ""))} onWheel={(e) => e.currentTarget.blur()} placeholder="0" className="sel" style={{ ...sx.sel, fontSize: 12.5, width: 72, textAlign: alDer, padding: "5px 8px", margin: margenInput }} />
                     )}
                   </td>
-                  <td style={{ padding: "6px 12px", textAlign: "right", color: T.muted, borderBottom: `1px solid ${T.lineSoft}` }}>{importe ? aiMoney(importe) : "$ -"}</td>
+                  <td style={{ padding: "6px 12px", textAlign: alDer, color: T.muted, borderBottom: `1px solid ${T.lineSoft}` }}>{importe ? aiMoney(importe) : "$ -"}</td>
+                  {celdaDif(d)}
                 </tr>
               </Fragment>
             );
@@ -2525,22 +2549,25 @@ function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agru
           {conMonedas && (
             <Fragment>
               <tr>
-                <td colSpan={3} style={{ padding: "5px 12px", background: T.lineSoft, fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Monedas</td>
+                <td colSpan={nCols} style={{ padding: "5px 12px", background: T.lineSoft, fontSize: 10.5, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Monedas</td>
               </tr>
               <tr>
-                <td style={{ padding: "6px 12px", borderBottom: `1px solid ${T.lineSoft}` }}>Monedas <span style={{ color: T.muted, fontSize: 11 }}>· total en pesos</span></td>
-                <td style={{ padding: "4px 8px", textAlign: "right", borderBottom: `1px solid ${T.lineSoft}` }}>
+                {celdaTeo(AI_MONEDAS_KEY)}
+                <td style={{ padding: "6px 12px", textAlign: alIzq, borderBottom: `1px solid ${T.lineSoft}` }}>Monedas <span style={{ color: T.muted, fontSize: 11 }}>· total en pesos</span></td>
+                <td style={{ padding: "4px 8px", textAlign: alDer, borderBottom: `1px solid ${T.lineSoft}` }}>
                   {soloLectura ? <span>{monedas === "" ? "—" : aiMoney(monedas)}</span> : (
-                    <input data-nav type="number" min="0" step="0.01" value={monedas} onChange={(e) => onChange(AI_MONEDAS_KEY, e.target.value.replace(/-/g, ""))} onWheel={(e) => e.currentTarget.blur()} placeholder="0.00" className="sel" style={{ ...sx.sel, fontSize: 12.5, width: 96, textAlign: "right", padding: "5px 8px", marginLeft: "auto" }} />
+                    <input data-nav type="number" min="0" step="0.01" value={monedas} onChange={(e) => onChange(AI_MONEDAS_KEY, e.target.value.replace(/-/g, ""))} onWheel={(e) => e.currentTarget.blur()} placeholder="0.00" className="sel" style={{ ...sx.sel, fontSize: 12.5, width: 96, textAlign: alDer, padding: "5px 8px", margin: margenInput }} />
                   )}
                 </td>
-                <td style={{ padding: "6px 12px", textAlign: "right", color: T.muted, borderBottom: `1px solid ${T.lineSoft}` }}>{monedas === "" || !Number(monedas) ? "$ -" : aiMoney(monedas)}</td>
+                <td style={{ padding: "6px 12px", textAlign: alDer, color: T.muted, borderBottom: `1px solid ${T.lineSoft}` }}>{monedas === "" || !Number(monedas) ? "$ -" : aiMoney(monedas)}</td>
+                {celdaDif(AI_MONEDAS_KEY)}
               </tr>
             </Fragment>
           )}
           <tr>
-            <td colSpan={2} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, fontStyle: "italic", color: T.muted }}>Total</td>
-            <td style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700 }}>{aiMoney(total)}</td>
+            <td colSpan={2 + (conTeo ? 1 : 0)} style={{ padding: "8px 12px", textAlign: "right", fontWeight: 700, fontStyle: "italic", color: T.muted }}>Total</td>
+            <td style={{ padding: "8px 12px", textAlign: alDer, fontWeight: 700 }}>{aiMoney(total)}</td>
+            {conDif && <td />}
           </tr>
         </tbody>
       </table>
@@ -3673,6 +3700,17 @@ function AIConteoResumen({ datos, acumCentavos, soloLectura, onAtras, onGuardar,
   const cuadra = diferencia === 0;
 
   const capturado = !aiTablaVacia(consolidado);
+  // Piezas por denominación que suman los cortes (teórico) y diferencia contra lo contado.
+  // Las monedas van como un importe en pesos, igual que en la captura.
+  const teoricoDenoms = {};
+  [...AI_DENOM_CONTEO, AI_MONEDAS_KEY].forEach((d) => {
+    teoricoDenoms[d] = datos.bloques.reduce((s, b) => s + (Number((b.cantidades || {})[d]) || 0), 0);
+    if (d === AI_MONEDAS_KEY) teoricoDenoms[d] = Math.round(teoricoDenoms[d] * 100) / 100;
+  });
+  const difDenoms = {};
+  [...AI_DENOM_CONTEO, AI_MONEDAS_KEY].forEach((d) => {
+    difDenoms[d] = Math.round(((Number(consolidado[d]) || 0) - teoricoDenoms[d]) * 100) / 100;
+  });
   const listo = capturado && (cuadra || comentario.trim());
   const paquete = () => ({ ...datos, consolidado, salidaCentavos: salida, comentario });
 
@@ -3736,7 +3774,8 @@ function AIConteoResumen({ datos, acumCentavos, soloLectura, onAtras, onGuardar,
           <div style={{ fontWeight: 700, fontSize: 14 }}>Conteo físico consolidado</div>
           <div style={{ fontSize: 11.5, color: T.muted }}>Ya juntos todos los billetes y monedas de los {datos.bloques.length} corte{datos.bloques.length === 1 ? "" : "s"}, cuéntalos aquí completos</div>
         </div>
-        <AITablaDenominaciones cantidades={consolidado} onChange={(d, v) => setConsolidado((p) => ({ ...p, [d]: v }))} denoms={AI_DENOM_CONTEO} agrupado conMonedas soloLectura={soloLectura} />
+        {/* Solo lectura y calculado al vuelo: no se guarda nada nuevo. */}
+        <AITablaDenominaciones cantidades={consolidado} onChange={(d, v) => setConsolidado((p) => ({ ...p, [d]: v }))} denoms={AI_DENOM_CONTEO} agrupado conMonedas soloLectura={soloLectura} teoricos={teoricoDenoms} difs={capturado ? difDenoms : null} />
       </div>
 
       <div style={{ ...sx.repCard, display: "grid", gap: 12 }}>
