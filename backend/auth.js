@@ -2,6 +2,13 @@ import jwt from "jsonwebtoken";
 
 const SECRET = process.env.JWT_SECRET;
 
+// En producción (Render) jamás se arranca sin una llave real: con la llave de
+// pruebas cualquiera podría fabricarse una sesión de administrador.
+if (!SECRET && process.env.RENDER) {
+  console.error("JWT_SECRET no está configurado en producción — el servidor no arranca sin él.");
+  process.exit(1);
+}
+
 if (!SECRET) {
   console.warn(
     "⚠️  Falta JWT_SECRET. Agrégalo a backend/.env (ver .env.example). Sin esto, nadie va a poder iniciar sesión de forma segura."

@@ -13,7 +13,26 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+// Render pone un proxy delante: sin esto, todas las visitas parecerían venir de
+// la misma IP y el límite de intentos de login no distinguiría a nadie.
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+// La plataforma y su API viven en el mismo dominio, así que no hace falta
+// permitir que OTROS sitios llamen a la API desde un navegador.
+app.use(cors({ origin: false }));
+
+// Cabeceras de seguridad básicas (sin dependencias extra).
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY"); // nadie puede incrustar la plataforma en otra página
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
+  next();
+});
+
 app.use(express.json({ limit: "5mb" }));
 
 // Contraseña para confirmar borrados sensibles (cuadres de Auditoría,
@@ -88,17 +107,46 @@ function checkCollectionRole(req, res, next) {
 // responde 500 con el mensaje en vez de dejar la petición colgada.
 const asyncRoute = (fn) => (req, res) => fn(req, res).catch((err) => {
   console.error(err);
-  res.status(500).json({ error: "Error del servidor", detalle: err.message });
+  // El detalle del error se queda en el log del servidor; al navegador no se
+  // le manda (podría revelar cómo está armado por dentro).
+  res.status(500).json({ error: "Error del servidor" });
 });
+
+// ---- Límite de intentos de login (frena adivinar contraseñas) ----
+// Máximo 8 fallos por IP+usuario cada 15 min, y 40 fallos por IP en el mismo
+// lapso. Se guarda en memoria: suficiente para un solo servidor.
+const VENTANA_LOGIN_MS = 15 * 60 * 1000;
+const fallosLogin = new Map(); // clave -> [timestamps]
+function fallosRecientes(clave) {
+  const ahora = Date.now();
+  const lista = (fallosLogin.get(clave) || []).filter((t) => ahora - t < VENTANA_LOGIN_MS);
+  if (lista.length) fallosLogin.set(clave, lista); else fallosLogin.delete(clave);
+  return lista;
+}
+function registrarFallo(clave) { const l = fallosRecientes(clave); l.push(Date.now()); fallosLogin.set(clave, l); }
+setInterval(() => { for (const k of [...fallosLogin.keys()]) fallosRecientes(k); }, VENTANA_LOGIN_MS).unref();
+// Hash de mentira para que "usuario que no existe" tarde lo mismo que uno real.
+const HASH_FALSO = bcrypt.hashSync("no-es-una-contraseña-real", 10);
 
 // ---- Login: recibe usuario/contraseña, regresa un token si son correctos ----
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) return res.status(400).json({ error: "Falta usuario o contraseña" });
+  if (typeof username !== "string" || typeof password !== "string" || username.length > 100 || password.length > 200) {
+    return res.status(400).json({ error: "Usuario o contraseña incorrectos" });
+  }
+  const claveIpUsuario = `${req.ip}|${username.toLowerCase()}`;
+  const claveIp = `ip|${req.ip}`;
+  if (fallosRecientes(claveIpUsuario).length >= 8 || fallosRecientes(claveIp).length >= 40) {
+    return res.status(429).json({ error: "Demasiados intentos. Espera unos 15 minutos e inténtalo de nuevo." });
+  }
   const user = await getUserByUsername(username);
-  if (!user) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+  const ok = await bcrypt.compare(password, user ? user.password_hash : HASH_FALSO);
+  if (!user || !ok) {
+    registrarFallo(claveIpUsuario);
+    registrarFallo(claveIp);
+    return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
+  }
   res.json({ token: signToken(user), username: user.username, role: user.role, sucursal: user.sucursal, preferencias: user.preferencias || {} });
 }));
 
