@@ -19,7 +19,7 @@ export function signToken(user) {
   return jwt.sign(
     { sub: user.id, username: user.username, role: user.role || "admin", sucursal: user.sucursal || null },
     SECRET || "inseguro-solo-para-pruebas",
-    { expiresIn: "30d" }
+    { expiresIn: "24h" }
   );
 }
 

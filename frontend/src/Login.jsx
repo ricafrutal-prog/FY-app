@@ -16,7 +16,7 @@ const T = {
   warnSoft: "#FFF4D6",
 };
 
-export default function Login({ onSuccess }) {
+export default function Login({ onSuccess, avisoInactividad }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [verPassword, setVerPassword] = useState(false);
@@ -70,6 +70,12 @@ export default function Login({ onSuccess }) {
         <div style={{ display: "flex", justifyContent: "center", padding: "2px 0 4px" }}>
           <img src="/assets/logo-texto.png" alt="Frutal Yogurt" style={{ width: 130, height: "auto" }} />
         </div>
+
+        {avisoInactividad && (
+          <div role="status" style={{ fontSize: 12.5, color: T.warn, background: T.warnSoft, borderRadius: 8, padding: "8px 10px" }}>
+            Tu sesión se cerró por inactividad. Vuelve a iniciar sesión.
+          </div>
+        )}
 
         <div style={{ display: "grid", gap: 5 }}>
           <label htmlFor="login-usuario" style={{ fontSize: 12, fontWeight: 600, color: T.ink }}>Usuario</label>
