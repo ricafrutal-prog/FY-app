@@ -5,7 +5,7 @@ import fs from "fs";
 import bcrypt from "bcryptjs";
 import { fileURLToPath } from "url";
 import { initDb, listCollection, upsertItem, deleteItem, getItem, getList, setList, getUserByUsername, updatePreferencias } from "./db.js";
-import { signToken, requireAuth, requireAdmin } from "./auth.js";
+import { signToken, requireAuth, requireAdmin, requireAdminOInventarios } from "./auth.js";
 import { odooLogin, odooExecuteKw, fechaLocalMx, sumarDiasISO } from "./odoo.js";
 import { ODOO_SUCURSAL_A_CONFIG } from "./odoo-sucursales.js";
 
@@ -87,8 +87,20 @@ function checkList(req, res, next) {
   if (!LISTS.has(req.params.name)) return res.status(404).json({ error: "Lista no reconocida" });
   next();
 }
+// Rol "inventarios" (p. ej. el encargado de inventarios): ve todo lo que ve un
+// admin en la plataforma pero SOLO puede escribir en lo de Inventarios y en los
+// cuadres de Auditoría. Las listas de configuración las puede leer, no cambiar.
+//   • "inventarios": Inventarios + cuadres de Auditoría.
+//   • "auditor": lo de Cortes (recepción, conteo, entrega de efectivo) — NO los
+//     cuadres de Auditoría ni nada de Inventarios.
+const ESCRITURA_POR_ROL = {
+  inventarios: new Set(["cuadres_auditoria", "conteos_diarios_inventario", "productos_inventario", "entradas_inventario", "ajustes_inventario"]),
+  auditor: new Set(["recepciones", "conteos", "borradores_conteo", "salidas"]),
+};
+
 function checkListRole(req, res, next) {
   if (req.user.role === "admin") return next();
+  if (ESCRITURA_POR_ROL[req.user.role] && req.method === "GET") return next();
   if (req.user.role === "sucursal" && SUCURSAL_LISTS_RO.has(req.params.name)) return next();
   return res.status(403).json({ error: "No tienes permiso para esto" });
 }
@@ -99,6 +111,10 @@ function checkListRole(req, res, next) {
 // botones en la pantalla).
 function checkCollectionRole(req, res, next) {
   if (req.user.role === "admin") return next();
+  if (ESCRITURA_POR_ROL[req.user.role]) {
+    if (req.method === "GET" || ESCRITURA_POR_ROL[req.user.role].has(req.params.name)) return next();
+    return res.status(403).json({ error: "No tienes permiso para esto" });
+  }
   if (req.user.role === "sucursal" && SUCURSAL_PERMISOS[req.params.name]) return next();
   return res.status(403).json({ error: "No tienes permiso para esto" });
 }
@@ -316,7 +332,7 @@ app.post("/api/lists/:name/agregar", requireAuth, checkList, asyncRoute(async (r
 // Si la sucursal todavía no está conectada, o el servidor no tiene la
 // configuración de Odoo puesta, regresa un error claro — el frontend, en ese
 // caso, deja seguir usando la subida de archivo a mano sin problema.
-app.get("/api/odoo/ventas-sucursal", requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.get("/api/odoo/ventas-sucursal", requireAuth, requireAdminOInventarios, asyncRoute(async (req, res) => {
   const { sucursal, desde, hasta } = req.query;
   if (!sucursal || !desde || !hasta) return res.status(400).json({ error: "Falta sucursal, desde o hasta" });
   if (!process.env.ODOO_URL) return res.status(503).json({ error: "La conexión con Odoo no está configurada en este servidor." });
@@ -352,7 +368,7 @@ app.get("/api/odoo/ventas-sucursal", requireAuth, requireAdmin, asyncRoute(async
 // nombre del producto viene tal cual está en Odoo (sin el código "[001]" al
 // frente); el lado de Inventarios hace el emparejamiento contra los productos
 // que cada sucursal decidió llevar (no hay catálogo fijo).
-app.get("/api/odoo/consumo-ventas", requireAuth, requireAdmin, asyncRoute(async (req, res) => {
+app.get("/api/odoo/consumo-ventas", requireAuth, requireAdminOInventarios, asyncRoute(async (req, res) => {
   const { sucursal, desde, hasta } = req.query;
   if (!sucursal || !desde || !hasta) return res.status(400).json({ error: "Falta sucursal, desde o hasta" });
   if (!process.env.ODOO_URL) return res.status(503).json({ error: "La conexión con Odoo no está configurada en este servidor." });

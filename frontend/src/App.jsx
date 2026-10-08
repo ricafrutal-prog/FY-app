@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import * as Icons from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList } from "./hooks/persistence";
-import { apiFetch, getUsername } from "./auth";
+import { apiFetch, getUsername, getRole } from "./auth";
 import AccountMenu from "./AccountMenu.jsx";
 
 const LOGO = "./assets/logo.png";
@@ -517,6 +517,19 @@ const DEPTOS = [
   { key: "auditoria_interna", nombre: "Cortes", iconName: "ShieldCheck" },
 ];
 
+/* Roles con acceso limitado dentro de Gestión. Lo que no les toca se ve apagado y no
+   responde al clic (sin candados ni avisos), y Cortes › Configuración no aparece.
+   El servidor además les niega escribir en lo que no es suyo (ver server.js) —
+   esto es solo la parte visual.
+     inventarios: Gestión › Inventarios y Cortes › Auditoría.
+     auditor:     Gestión › Cortes, todos los paneles menos Auditoría. */
+const PERMISOS_ROL = {
+  inventarios: { deptos: new Set(["inventarios", "auditoria_interna"]), inicial: "inventarios", paneles: ["auditoria"] },
+  auditor: { deptos: new Set(["auditoria_interna"]), inicial: "auditoria_interna", paneles: ["recepcion", "conteo", "salidas", "v1", "v3"] },
+};
+const permisosRol = () => PERMISOS_ROL[getRole()] || null;
+const ESTILO_APAGADO = { opacity: 0.3, cursor: "default", pointerEvents: "none" };
+
 /* ===== Datos del departamento de Franquicias ===== */
 const FRANQ_SECCIONES = [
   { key: "red", nombre: "Red de franquicias", iconName: "Network", activa: true, desc: "Directorio y semáforo de todas las franquicias" },
@@ -633,8 +646,14 @@ export default function App({ onCerrarSesion }) {
   const [area, setArea] = useState(null); // null = menú de áreas | "sucursales" | ...
   const [vista, setVista] = useState("tablero"); // tablero | reportes | reportar | informes
   const [sucSel, setSucSel] = useState(null);
-  const [depto, setDepto] = useState("inicio");
+  const permisos = permisosRol();
+  const restringidoInv = !!permisos;
+  const [depto, setDepto] = useState(permisos ? permisos.inicial : "inicio");
   const [modo, setModo] = useState("gestion");
+  // Un rol restringido no puede cambiar a un departamento o modo que no le toca,
+  // aunque algún botón del programa lo intentara.
+  const irADepto = (k) => { if (permisos && !permisos.deptos.has(k)) return; setDepto(k); };
+  const irAModo = (k) => { if (restringidoInv && k !== "gestion") return; setModo(k); };
   const [cuadro, setCuadro] = useState(CUADRO_SEED);
   const [inv, setInv] = useState(INV_SEED);
   const [invMes, setInvMes] = useState(INVMES_SEED);
@@ -779,11 +798,11 @@ export default function App({ onCerrarSesion }) {
   return (
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
-      <NavRail modo={modo} setModo={setModo} />
+      <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
       {modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : (<>
-      <Sidebar depto={depto} onPick={setDepto} />
+      <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-      {depto === "inicio" && <Inicio onEnter={(k) => setDepto(k)} mtto={mttoResumen} />}
+      {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} />}
       {depto === "franquicias" && <Franquicias onCerrarSesion={onCerrarSesion} />}
       {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} onCerrarSesion={onCerrarSesion} />}
       {depto === "sucursales_propias" && <SucursalesPropias onCerrarSesion={onCerrarSesion} />}
@@ -901,12 +920,12 @@ export default function App({ onCerrarSesion }) {
 }
 
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
-function NavRail({ modo, setModo }) {
+function NavRail({ modo, setModo, soloGestion }) {
   const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"]];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
       {items.map(([k, label, icon]) => (
-        <button key={k} onClick={() => setModo(k)} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
+        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
           <Ico name={icon} size={20} />
           <span style={{ fontSize: 9.5, fontWeight: 600 }}>{label}</span>
         </button>
@@ -2085,7 +2104,7 @@ function FinNoAplica({ que }) {
 }
 
 /* ---------------- BARRA LATERAL DE DEPARTAMENTOS ---------------- */
-function Sidebar({ depto, onPick }) {
+function Sidebar({ depto, onPick, permitidos }) {
   return (
     <aside className="noprint" style={sx.sidebar}>
       <div style={{ padding: "2px 8px 20px" }}>
@@ -2096,11 +2115,12 @@ function Sidebar({ depto, onPick }) {
           const active = depto === d.key;
           const bg = active ? T.brand : d.home ? "rgba(255,255,255,.07)" : "transparent";
           const col = active ? "#fff" : d.home ? "#fff" : "rgba(255,255,255,.62)";
+          const apagado = permitidos && !permitidos.has(d.key);
           return (
-            <button key={d.key} onClick={() => onPick(d.key)} className="deptobtn" style={{ ...sx.deptoItem, background: bg, color: col, fontWeight: active || d.home ? 700 : 500 }}>
+            <button key={d.key} onClick={() => onPick(d.key)} tabIndex={apagado ? -1 : 0} className="deptobtn" style={{ ...sx.deptoItem, background: bg, color: col, fontWeight: active || d.home ? 700 : 500, ...(apagado ? ESTILO_APAGADO : {}) }}>
               <span style={{ width: 22, display: "flex", justifyContent: "center" }}><Ico name={d.iconName} size={17} /></span>
               <span style={{ flex: 1, textAlign: "left", fontSize: 13 }}>{d.nombre}</span>
-              {!d.activo && <span style={sx.proxTag}>Próx.</span>}
+              {!d.activo && !permitidos && <span style={sx.proxTag}>Próx.</span>}
             </button>
           );
         })}
@@ -2595,8 +2615,11 @@ const AI_PANELES_CONFIG = [
 // "sucursal" — si hace falta para más gente, esto se vuelve una lista.
 const USUARIOS_SIN_CONFIG_CORTES = new Set(["jesus_segura"]);
 
-function AIHome({ onEnter, mostrarConfiguracion }) {
-  const tag = { display: "inline-block", marginTop: 8, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 9px", borderRadius: 99 };
+function AIHome({ onEnter, mostrarConfiguracion, soloPaneles }) {
+  // Con `soloPaneles` (rol inventarios) el resto de los cuadros se ve apagado y no responde,
+  // y se ocultan por completo la sección de visualización y la de configuración.
+  const apagado = (p) => soloPaneles && !soloPaneles.includes(p.key);
+  const tag ={ display: "inline-block", marginTop: 8, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 9px", borderRadius: 99 };
   return (
     <div>
       <div style={sx.h1row}><h1 style={sx.h1}>Cortes</h1><span style={{ fontSize: 12, color: T.muted }}>recepción, conteo, entrega y auditoría de efectivo</span></div>
@@ -2604,7 +2627,7 @@ function AIHome({ onEnter, mostrarConfiguracion }) {
       <div style={sx.sectionTitle}>Captura</div>
       <div style={{ ...sx.cards4, marginBottom: 30 }}>
         {AI_PANELES_CAPTURA.map((p) => (
-          <button key={p.key} disabled={!p.activo} onClick={() => p.activo && onEnter(p.key)} className={p.activo ? "rowbtn" : ""} style={{ ...sx.deptoCard, cursor: p.activo ? "pointer" : "default", opacity: p.activo ? 1 : 0.55 }}>
+          <button key={p.key} disabled={!p.activo || apagado(p)} tabIndex={apagado(p) ? -1 : 0} onClick={() => p.activo && !apagado(p) && onEnter(p.key)} className={p.activo && !apagado(p) ? "rowbtn" : ""} style={{ ...sx.deptoCard, cursor: p.activo ? "pointer" : "default", opacity: p.activo ? 1 : 0.55, ...(apagado(p) ? ESTILO_APAGADO : {}) }}>
             <Ico name={p.icon} size={30} strokeWidth={1.6} color={p.activo ? T.brand : T.muted} />
             <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
             {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
@@ -2616,7 +2639,7 @@ function AIHome({ onEnter, mostrarConfiguracion }) {
       <div style={sx.sectionTitle}>Visualización · cierres de semana y de mes</div>
       <div style={{ ...sx.cards4, marginBottom: 30 }}>
         {AI_PANELES_VISUAL.map((p) => (
-          <button key={p.key} disabled={!p.activo} onClick={() => p.activo && onEnter(p.key)} className={p.activo ? "rowbtn" : ""} style={{ ...sx.deptoCard, cursor: p.activo ? "pointer" : "default", opacity: p.activo ? 1 : 0.55 }}>
+          <button key={p.key} disabled={!p.activo || apagado(p)} tabIndex={apagado(p) ? -1 : 0} onClick={() => p.activo && !apagado(p) && onEnter(p.key)} className={p.activo && !apagado(p) ? "rowbtn" : ""} style={{ ...sx.deptoCard, cursor: p.activo ? "pointer" : "default", opacity: p.activo ? 1 : 0.55, ...(apagado(p) ? ESTILO_APAGADO : {}) }}>
             <Ico name={p.icon} size={30} strokeWidth={1.6} color={p.activo ? T.brand : T.muted} />
             <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
             {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
@@ -5709,7 +5732,9 @@ function AuditoriaInterna({ onCerrarSesion }) {
   const [productosInventario, setProductosInventario, productosInventarioListos] = usePersistedCollection("productos_inventario");
 
   const datosListos = recepcionesListas && salidasListas && conteosListos && borradoresListos && cuadresListos && cortesSucursalListos && inventariosSucursalListos && productosInventarioListos;
-  const puedeConfigurar = !USUARIOS_SIN_CONFIG_CORTES.has(getUsername());
+  const permisos = permisosRol(); // roles limitados: solo ciertos paneles; sin Configuración
+  const puedeConfigurar = !permisos && !USUARIOS_SIN_CONFIG_CORTES.has(getUsername());
+  const irAPanel = (k) => { if (permisos && !permisos.paneles.includes(k)) return; setPanel(k); };
 
   const tituloPanel = AI_PANELES_CAPTURA.find((p) => p.key === panel)?.nombre || AI_PANELES_VISUAL.find((p) => p.key === panel)?.nombre || AI_PANELES_CONFIG.find((p) => p.key === panel)?.nombre || "Panel principal";
 
@@ -5724,7 +5749,7 @@ function AuditoriaInterna({ onCerrarSesion }) {
       </header>
       <main style={sx.main}>
         {!datosListos && <div style={sx.empty}>Cargando datos…</div>}
-        {datosListos && !panel && <AIHome onEnter={setPanel} mostrarConfiguracion={puedeConfigurar} />}
+        {datosListos && !panel && <AIHome onEnter={irAPanel} mostrarConfiguracion={puedeConfigurar} soloPaneles={permisos ? permisos.paneles : null} />}
         {datosListos && panel === "recepcion" && <AIRecepcion recepciones={recepciones} setRecepciones={setRecepciones} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "conteo" && <AIConteo recepciones={recepciones} setRecepciones={setRecepciones} conteos={conteos} setConteos={setConteos} borradores={borradoresConteo} setBorradores={setBorradoresConteo} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "v1" && <AICierreSemanal recepciones={recepciones} sucursales={sucursalesAI} onSalir={() => setPanel(null)} />}
