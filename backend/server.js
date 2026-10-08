@@ -252,7 +252,25 @@ app.delete("/api/collections/:name/dia/:sucursal/:fecha", requireAuth, requireAd
 // ---- Listas simples (arreglos de strings/objetos): sucursales y catálogos ----
 // La mayoría son solo-admin; unas pocas (ver SUCURSAL_LISTS_RO) también se
 // pueden LEER desde sucursal para poblar selects — nunca editar desde ahí.
+// Los responsables funcionan en dos capas:
+//   • la lista GENERAL ("responsables_sucursal"), que maneja el admin desde
+//     Gestión y ven todas las sucursales por igual;
+//   • la lista PROPIA de cada sucursal ("responsables_sucursal::<sucursal>"),
+//     donde caen los nombres que esa sucursal agrega desde su captura — solo
+//     esa sucursal los ve.
+// Una sucursal siempre recibe general + propia; el admin sigue viendo y
+// editando solo la general.
+const nombreListaPropia = (nombre, sucursal) => `${nombre}::${sucursal}`;
+async function listaVistaPorSucursal(nombre, sucursal) {
+  const general = (await getList(nombre)) ?? [];
+  const propia = (await getList(nombreListaPropia(nombre, sucursal))) ?? [];
+  return [...new Set([...general, ...propia])];
+}
+
 app.get("/api/lists/:name", requireAuth, checkList, checkListRole, asyncRoute(async (req, res) => {
+  if (req.user.role === "sucursal" && SUCURSAL_LISTS_AGREGAR.has(req.params.name)) {
+    return res.json(await listaVistaPorSucursal(req.params.name, req.user.sucursal));
+  }
   const data = await getList(req.params.name);
   res.json(data ?? []);
 }));
@@ -274,6 +292,18 @@ app.post("/api/lists/:name/agregar", requireAuth, checkList, asyncRoute(async (r
   if (!puedeAgregar) return res.status(403).json({ error: "No tienes permiso para esto" });
   const valor = typeof (req.body || {}).valor === "string" ? req.body.valor.trim() : "";
   if (!valor) return res.status(400).json({ error: "Falta el nombre a agregar" });
+  if (valor.length > 80) return res.status(400).json({ error: "El nombre es demasiado largo" });
+  if (!esAdmin) {
+    // Una sucursal agrega a SU lista propia, nunca a la general.
+    const visibles = await listaVistaPorSucursal(req.params.name, req.user.sucursal);
+    if (!visibles.includes(valor)) {
+      const propiaNombre = nombreListaPropia(req.params.name, req.user.sucursal);
+      const propia = (await getList(propiaNombre)) ?? [];
+      propia.push(valor);
+      await setList(propiaNombre, propia);
+    }
+    return res.json(await listaVistaPorSucursal(req.params.name, req.user.sucursal));
+  }
   const actual = (await getList(req.params.name)) ?? [];
   if (!actual.includes(valor)) {
     actual.push(valor);
@@ -402,7 +432,27 @@ async function borrarConciliacionSemanalVieja() {
   }
 }
 
+// Migración única: hasta ahora los responsables eran UNA lista que compartían
+// todas las sucursales. Lo que había ahí lo fueron agregando desde captura
+// (solo se usaba Las Puentes), así que se pasa a la lista propia de Las
+// Puentes y la general queda vacía para que el admin la use solo con lo que
+// quiera que vean todas. Se anota que ya se hizo para no repetirla.
+async function separarResponsablesPorSucursal() {
+  const marca = (await getList("migraciones_hechas")) ?? [];
+  if (marca.includes("responsables_por_sucursal")) return;
+  const general = (await getList("responsables_sucursal")) ?? [];
+  if (general.length) {
+    const propiaNombre = nombreListaPropia("responsables_sucursal", "Las Puentes");
+    const propia = (await getList(propiaNombre)) ?? [];
+    await setList(propiaNombre, [...new Set([...propia, ...general])]);
+    await setList("responsables_sucursal", []);
+    console.log(`Responsables: ${general.length} nombre(s) pasaron de la lista compartida a la propia de Las Puentes.`);
+  }
+  await setList("migraciones_hechas", [...marca, "responsables_por_sucursal"]);
+}
+
 initDb()
+  .then(() => separarResponsablesPorSucursal())
   .then(() => migrarProductosInventarioAGlobal())
   .then(() => borrarConciliacionSemanalVieja())
   .then(() => {
