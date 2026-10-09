@@ -19,6 +19,7 @@
     --fy-font: 'Plus Jakarta Sans', system-ui, sans-serif;
     --fy-bg-image: none;
     --fy-bg-tint: 1;
+    --fy-bg-size: cover;
   }
   body, body * { font-family: var(--fy-font) !important; }
 
@@ -28,7 +29,7 @@
   #fy-app-shell {
     background-color: #F1F3F2;
     background-image: linear-gradient(rgba(241, 243, 242, var(--fy-bg-tint)), rgba(241, 243, 242, var(--fy-bg-tint))), var(--fy-bg-image);
-    background-size: cover, cover;
+    background-size: cover, var(--fy-bg-size);
     background-position: center, center;
     background-attachment: fixed, fixed;
     background-repeat: no-repeat, no-repeat;
@@ -77,6 +78,7 @@
         var tinte = Math.max(0, Math.min(100, 100 - (Number(p.fondoIntensidad) || 0))) / 100;
         root.style.setProperty("--fy-bg-image", "url(" + p.fondoImagen + ")");
         root.style.setProperty("--fy-bg-tint", String(0.15 + tinte * 0.75));
+        root.style.setProperty("--fy-bg-size", p.fondoAjuste === "completa" ? "contain" : "cover");
       }
     } catch (e) {}
   })();

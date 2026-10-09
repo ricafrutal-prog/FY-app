@@ -22,6 +22,7 @@ export const DEFAULTS = {
   fuente: "jakarta",
   fondoImagen: null, // data URL (ya comprimida) o null
   fondoIntensidad: 55, // 0 = casi tapada por el tinte, 100 = foto a toda vista
+  fondoAjuste: "llenar", // llenar = cubre toda la pantalla (puede recortar bordes) | completa = se ve entera
   densidad: "comoda", // comoda | compacta
 };
 
@@ -73,6 +74,7 @@ export function applyPrefs(prefs) {
     const tinte = Math.max(0, Math.min(100, 100 - (Number(p.fondoIntensidad) || 0))) / 100;
     root.style.setProperty("--fy-bg-image", `url(${p.fondoImagen})`);
     root.style.setProperty("--fy-bg-tint", String(0.15 + tinte * 0.75));
+    root.style.setProperty("--fy-bg-size", p.fondoAjuste === "completa" ? "contain" : "cover");
   } else {
     root.style.setProperty("--fy-bg-image", "none");
     root.style.setProperty("--fy-bg-tint", "1");
@@ -108,28 +110,48 @@ export async function guardarPrefsEnServidor(prefs) {
   return data.preferencias;
 }
 
-// Comprime y reduce una foto antes de guardarla — una foto de celular sin
-// tocar pesa varios MB; esto la deja en un tamaño razonable para vivir en
-// la cuenta del usuario y cargar rápido.
-export function comprimirImagen(file, maxAncho = 1600, calidad = 0.72) {
+// Prepara la foto de fondo para guardarla en la cuenta, cuidando la calidad:
+//  • Si la foto ya es de un tamaño razonable (hasta 2560 px de lado mayor y
+//    ~1.8 MB), se usa TAL CUAL — cero pérdida.
+//  • Si es más grande, se reduce con suavizado de alta calidad y se guarda como
+//    JPEG empezando en calidad 92; solo baja la calidad (y al final el tamaño)
+//    si hace falta para no pasar del límite.
+// 2560 px cubre pantallas Retina sin que se vea pixelada.
+export function comprimirImagen(file, maxLado = 2560, maxBytes = 1.8 * 1024 * 1024) {
   return new Promise((resolve, reject) => {
     const lector = new FileReader();
     lector.onerror = () => reject(new Error("No se pudo leer la imagen"));
     lector.onload = () => {
+      const original = lector.result;
       const img = new Image();
       img.onerror = () => reject(new Error("El archivo no parece ser una imagen válida"));
       img.onload = () => {
-        const escala = Math.min(1, maxAncho / img.width);
-        const w = Math.round(img.width * escala);
-        const h = Math.round(img.height * escala);
-        const canvas = document.createElement("canvas");
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, w, h);
-        resolve(canvas.toDataURL("image/jpeg", calidad));
+        const ladoMayor = Math.max(img.width, img.height);
+        if (ladoMayor <= maxLado && String(original).length <= maxBytes) return resolve(original);
+
+        const dibujar = (escala, calidad) => {
+          const w = Math.max(1, Math.round(img.width * escala));
+          const h = Math.max(1, Math.round(img.height * escala));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          ctx.fillStyle = "#fff"; // PNG con transparencia: fondo blanco en vez de negro
+          ctx.fillRect(0, 0, w, h);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          return canvas.toDataURL("image/jpeg", calidad);
+        };
+
+        let escala = Math.min(1, maxLado / ladoMayor);
+        let calidad = 0.92;
+        let out = dibujar(escala, calidad);
+        while (out.length > maxBytes && calidad > 0.7) { calidad -= 0.05; out = dibujar(escala, calidad); }
+        while (out.length > maxBytes && escala > 0.4) { escala *= 0.88; out = dibujar(escala, calidad); }
+        resolve(out);
       };
-      img.src = lector.result;
+      img.src = original;
     };
     lector.readAsDataURL(file);
   });

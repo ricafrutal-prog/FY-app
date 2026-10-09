@@ -121,7 +121,11 @@ export default function PersonalizarCuenta({ onCerrar }) {
             <input ref={fileRef} type="file" accept="image/*" onChange={onFoto} style={{ display: "none" }} />
             {prefs.fondoImagen ? (
               <div style={{ display: "grid", gap: 10 }}>
-                <div style={{ height: 110, borderRadius: 10, border: `1px solid ${T.line}`, backgroundImage: `url(${prefs.fondoImagen})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+                <div style={{ height: 110, borderRadius: 10, border: `1px solid ${T.line}`, backgroundColor: T.paper, backgroundImage: `url(${prefs.fondoImagen})`, backgroundSize: prefs.fondoAjuste === "completa" ? "contain" : "cover", backgroundPosition: "center", backgroundRepeat: "no-repeat" }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => actualizar({ fondoAjuste: "llenar" })} style={{ ...opcionBtn((prefs.fondoAjuste || "llenar") === "llenar"), flex: 1 }} title="La foto cubre toda la pantalla; si no coincide la forma, se recortan los bordes">Llenar pantalla</button>
+                  <button onClick={() => actualizar({ fondoAjuste: "completa" })} style={{ ...opcionBtn(prefs.fondoAjuste === "completa"), flex: 1 }} title="Se ve la foto completa, sin recortar; pueden quedar franjas a los lados">Ver completa</button>
+                </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={elegirFoto} disabled={subiendoFoto} style={{ ...opcionBtn(false), flex: 1 }}>Cambiar foto</button>
                   <button onClick={quitarFoto} style={{ ...opcionBtn(false), color: T.bad, borderColor: T.bad, display: "flex", alignItems: "center", gap: 6, justifyContent: "center" }}><Trash2 size={14} /> Quitar</button>
