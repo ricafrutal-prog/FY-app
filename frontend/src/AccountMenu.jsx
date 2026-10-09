@@ -6,7 +6,7 @@ import UsuariosConectados from "./UsuariosConectados.jsx";
 
 // Solo esta cuenta ve la opción "Usuarios conectados" (el servidor además
 // rechaza a cualquier otra con 403, aunque alguien intentara llamarla).
-const DUENO = "ricardo_administrador";
+const DUENO = "administrador_ricardo";
 
 // Botón de cuenta ("Hola, {nombre} · Cuenta", como en Amazon) con su menú
 // desplegable. NO se posiciona solo — va adentro de <CuentaBarra>, que es la

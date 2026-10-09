@@ -193,7 +193,7 @@ app.post("/api/auth/logout", requireAuth, asyncRoute(async (req, res) => {
 // ---- Usuarios conectados (solo para el dueño de la plataforma) ----
 // El permiso se comprueba aquí, en el servidor, por nombre de usuario — el
 // botón en pantalla es solo comodidad.
-const SUPERADMIN = process.env.SUPERADMIN_USERNAME || "ricardo_administrador";
+const SUPERADMIN = process.env.SUPERADMIN_USERNAME || "administrador_ricardo";
 function requireSuperAdmin(req, res, next) {
   if (req.user?.username !== SUPERADMIN) return res.status(403).json({ error: "No tienes permiso para esto" });
   next();
