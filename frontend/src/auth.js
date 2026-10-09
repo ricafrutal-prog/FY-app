@@ -40,6 +40,16 @@ function setSession(token, username, role, sucursal) {
   localStorage.setItem(ROLE_KEY, role || "admin");
   localStorage.setItem(SUCURSAL_KEY, sucursal || "");
 }
+// Avisa al servidor que esta sesión se cerró, para liberar la cuenta de inmediato
+// (solo puede haber una sesión abierta por cuenta). Llamar ANTES de clearSession().
+// No espera respuesta: si falla, la cuenta se libera sola a los pocos minutos.
+export function cerrarSesionServidor() {
+  const token = getToken();
+  if (!token) return;
+  try {
+    fetch("/api/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${token}` }, keepalive: true }).catch(() => {});
+  } catch { /* nada */ }
+}
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USERNAME_KEY);

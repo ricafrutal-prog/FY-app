@@ -4,7 +4,8 @@ import path from "path";
 import fs from "fs";
 import bcrypt from "bcryptjs";
 import { fileURLToPath } from "url";
-import { initDb, listCollection, upsertItem, deleteItem, getItem, getList, setList, getUserByUsername, updatePreferencias } from "./db.js";
+import { randomUUID } from "crypto";
+import { initDb, listCollection, upsertItem, deleteItem, getItem, getList, setList, getUserByUsername, updatePreferencias, abrirSesion, cerrarSesion, listarSesiones } from "./db.js";
 import { signToken, requireAuth, requireAdmin, requireAdminOInventarios } from "./auth.js";
 import { odooLogin, odooExecuteKw, fechaLocalMx, sumarDiasISO } from "./odoo.js";
 import { ODOO_SUCURSAL_A_CONFIG } from "./odoo-sucursales.js";
@@ -144,6 +145,9 @@ setInterval(() => { for (const k of [...fallosLogin.keys()]) fallosRecientes(k);
 // Hash de mentira para que "usuario que no existe" tarde lo mismo que uno real.
 const HASH_FALSO = bcrypt.hashSync("no-es-una-contraseña-real", 10);
 
+// Segundos sin actividad tras los cuales una sesión ya no cuenta como abierta.
+const VENTANA_SESION_SEG = 180;
+
 // ---- Login: recibe usuario/contraseña, regresa un token si son correctos ----
 app.post("/api/auth/login", asyncRoute(async (req, res) => {
   const { username, password } = req.body || {};
@@ -163,7 +167,45 @@ app.post("/api/auth/login", asyncRoute(async (req, res) => {
     registrarFallo(claveIp);
     return res.status(401).json({ error: "Usuario o contraseña incorrectos" });
   }
-  res.json({ token: signToken(user), username: user.username, role: user.role, sucursal: user.sucursal, preferencias: user.preferencias || {} });
+  // Una sola sesión abierta por cuenta: si ya hay una viva (con actividad en los
+  // últimos VENTANA_SESION_SEG segundos), no se deja abrir otra hasta que se
+  // cierre esa — o pasen unos minutos sin señal de ella (ventana cerrada, equipo
+  // apagado, sin internet).
+  const sid = randomUUID();
+  const abierta = await abrirSesion({ username: user.username, sid, role: user.role, sucursal: user.sucursal, ip: req.ip, ventanaSeg: VENTANA_SESION_SEG });
+  if (!abierta) {
+    return res.status(409).json({ error: "Esta cuenta ya tiene una sesión abierta en otro dispositivo o ventana. Ciérrala primero; si ya la cerraste sin usar \"Cerrar sesión\", espera unos 3 minutos e inténtalo de nuevo." });
+  }
+  res.json({ token: signToken(user, sid), username: user.username, role: user.role, sucursal: user.sucursal, preferencias: user.preferencias || {} });
+}));
+
+// Latido: la pantalla lo manda cada 30 s mientras está abierta. Así la sesión
+// cuenta como "en línea"; cuando dejan de llegar (se cerró la ventana o se
+// apagó el equipo) la cuenta se libera sola a los pocos minutos.
+app.post("/api/auth/heartbeat", requireAuth, (req, res) => res.json({ ok: true }));
+
+// Cierre de sesión voluntario: libera la cuenta al instante.
+app.post("/api/auth/logout", requireAuth, asyncRoute(async (req, res) => {
+  await cerrarSesion(req.user.username, req.user.sid);
+  res.json({ ok: true });
+}));
+
+// ---- Usuarios conectados (solo para el dueño de la plataforma) ----
+// El permiso se comprueba aquí, en el servidor, por nombre de usuario — el
+// botón en pantalla es solo comodidad.
+const SUPERADMIN = process.env.SUPERADMIN_USERNAME || "ricardo_administrador";
+function requireSuperAdmin(req, res, next) {
+  if (req.user?.username !== SUPERADMIN) return res.status(403).json({ error: "No tienes permiso para esto" });
+  next();
+}
+app.get("/api/admin/sesiones", requireAuth, requireSuperAdmin, asyncRoute(async (req, res) => {
+  const sesiones = await listarSesiones(VENTANA_SESION_SEG);
+  res.json(sesiones.map((s) => ({ ...s, enLinea: s.segundos < 90 })));
+}));
+app.post("/api/admin/sesiones/:username/cerrar", requireAuth, requireSuperAdmin, asyncRoute(async (req, res) => {
+  if (req.params.username === req.user.username) return res.status(400).json({ error: "Para cerrar tu propia sesión usa \"Cerrar sesión\"." });
+  await cerrarSesion(req.params.username);
+  res.json({ ok: true });
 }));
 
 // Sesión actual — sirve para refrescar (por ejemplo) las preferencias de

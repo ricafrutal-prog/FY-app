@@ -53,7 +53,75 @@ export async function initDb() {
     -- Preferencias de personalización (tema, tipografía, fondo, densidad) —
     -- se guardan por cuenta para que viajen entre dispositivos.
     ALTER TABLE users ADD COLUMN IF NOT EXISTS preferencias JSONB NOT NULL DEFAULT '{}'::jsonb;
+
+    -- Una sola sesión abierta por usuario. "sid" identifica la sesión vigente
+    -- (va dentro del token); "ultima_actividad" se renueva con cada petición y
+    -- con el latido que manda la pantalla. Todo el cálculo de tiempos se hace
+    -- con el reloj de la base de datos, no con el del servidor.
+    CREATE TABLE IF NOT EXISTS sesiones (
+      username TEXT PRIMARY KEY,
+      sid TEXT NOT NULL,
+      role TEXT,
+      sucursal TEXT,
+      ip TEXT,
+      iniciada TIMESTAMPTZ NOT NULL DEFAULT now(),
+      ultima_actividad TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
   `);
+}
+
+/* ---- Sesiones (una abierta por usuario) ---- */
+
+// Intenta abrir la sesión de un usuario. Solo lo logra si NO hay una sesión
+// viva (con actividad en los últimos `ventanaSeg` segundos) — en un solo paso,
+// para que dos inicios de sesión a la vez no se cuelen los dos. Regresa true/false.
+export async function abrirSesion({ username, sid, role, sucursal, ip, ventanaSeg }) {
+  const { rows } = await pool.query(
+    `INSERT INTO sesiones (username, sid, role, sucursal, ip, iniciada, ultima_actividad)
+     VALUES ($1, $2, $3, $4, $5, now(), now())
+     ON CONFLICT (username) DO UPDATE
+       SET sid = excluded.sid, role = excluded.role, sucursal = excluded.sucursal, ip = excluded.ip,
+           iniciada = now(), ultima_actividad = now()
+       WHERE sesiones.ultima_actividad < now() - ($6 || ' seconds')::interval
+     RETURNING sid`,
+    [username, sid, role, sucursal, ip, String(ventanaSeg)]
+  );
+  return rows.length > 0;
+}
+
+export async function getSesion(username) {
+  const { rows } = await pool.query(
+    "SELECT sid, EXTRACT(EPOCH FROM (now() - ultima_actividad)) AS segundos FROM sesiones WHERE username = $1",
+    [username]
+  );
+  return rows[0] ? { sid: rows[0].sid, segundos: Number(rows[0].segundos) } : null;
+}
+
+export async function tocarSesion(username, sid) {
+  await pool.query("UPDATE sesiones SET ultima_actividad = now() WHERE username = $1 AND sid = $2", [username, sid]);
+}
+
+// Cierra la sesión de un usuario. Con `sid` solo borra si es esa misma sesión
+// (así un cierre tardío no tumba una sesión nueva).
+export async function cerrarSesion(username, sid = null) {
+  if (sid) await pool.query("DELETE FROM sesiones WHERE username = $1 AND sid = $2", [username, sid]);
+  else await pool.query("DELETE FROM sesiones WHERE username = $1", [username]);
+}
+
+export async function cerrarTodasLasSesiones() {
+  await pool.query("DELETE FROM sesiones");
+}
+
+export async function listarSesiones(maxSegundos) {
+  const { rows } = await pool.query(
+    `SELECT username, role, sucursal, iniciada,
+            EXTRACT(EPOCH FROM (now() - ultima_actividad)) AS segundos
+       FROM sesiones
+      WHERE ultima_actividad >= now() - ($1 || ' seconds')::interval
+      ORDER BY iniciada ASC`,
+    [String(maxSegundos)]
+  );
+  return rows.map((r) => ({ username: r.username, role: r.role, sucursal: r.sucursal, iniciada: r.iniciada, segundos: Math.round(Number(r.segundos)) }));
 }
 
 export async function getUserByUsername(username) {

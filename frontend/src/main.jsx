@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import Login from "./Login.jsx";
 import SucursalApp from "./SucursalApp.jsx";
-import { getToken, getRole, clearSession } from "./auth";
+import { getToken, getRole, clearSession, cerrarSesionServidor } from "./auth";
 import GuardiaInactividad, { descartarSesionSiInactiva, marcarActividad, limpiarActividad } from "./inactividad.jsx";
 import { getPrefsLocal, applyPrefs, loadPrefsDesdeServidor, limpiarPrefsLocal } from "./preferences";
 
@@ -21,9 +21,9 @@ function Root() {
     loadPrefsDesdeServidor().catch(() => {});
   }, [autenticado]);
 
-  const cerrarSesion = () => { clearSession(); limpiarActividad(); limpiarPrefsLocal(); setAutenticado(false); };
+  const cerrarSesion = () => { cerrarSesionServidor(); clearSession(); limpiarActividad(); limpiarPrefsLocal(); setAutenticado(false); };
   const cerrarPorInactividad = useCallback(() => {
-    clearSession(); limpiarActividad(); limpiarPrefsLocal();
+    cerrarSesionServidor(); clearSession(); limpiarActividad(); limpiarPrefsLocal();
     setAvisoInactividad(true);
     setAutenticado(false);
   }, []);

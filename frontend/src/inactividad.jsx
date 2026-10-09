@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { clearSession, getToken } from "./auth";
+import { apiFetch, clearSession, getToken } from "./auth";
 
 /* Cierre de sesión por inactividad.
    Si nadie toca el ratón, el teclado o la pantalla durante LIMITE_MIN minutos,
@@ -68,11 +68,15 @@ export default function GuardiaInactividad({ activo, onExpira }) {
       }
     };
     const t = setInterval(revisar, 1000);
+    // Latido al servidor cada 30 s: así la cuenta cuenta como "en línea" y nadie
+    // más puede abrirla. Si la sesión ya no es vigente, apiFetch regresa al login.
+    const latido = setInterval(() => { apiFetch("/api/auth/heartbeat", { method: "POST" }).catch(() => {}); }, 30000);
     // Al volver a la pestaña (o despertar la computadora) se revisa de inmediato.
     document.addEventListener("visibilitychange", revisar);
 
     return () => {
       clearInterval(t);
+      clearInterval(latido);
       document.removeEventListener("visibilitychange", revisar);
       eventos.forEach((e) => window.removeEventListener(e, registrar, { capture: true }));
     };

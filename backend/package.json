@@ -9,6 +9,9 @@
     "create-user": "node scripts/create-user.js",
     "list-users": "node scripts/list-users.js",
     "reset-password": "node scripts/reset-password.js",
+    "cerrar-sesiones": "node scripts/cerrar-sesiones.js",
+    "respaldo": "node scripts/respaldo.js",
+    "restaurar": "node scripts/restaurar.js",
     "odoo-explore": "node scripts/odoo-explore.js",
     "odoo-explore-productos": "node scripts/odoo-explore-productos.js"
   },

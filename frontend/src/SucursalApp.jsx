@@ -10,7 +10,7 @@ import { useState, useRef, useEffect } from "react";
 import { ShieldCheck, Receipt, UserMinus, Smartphone, ChevronLeft, Boxes, Plus, Trash2, Download, ChevronDown, Printer, FileText, Sheet, Check, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList, agregarValorLista } from "./hooks/persistence";
-import { getSucursal, clearSession } from "./auth";
+import { getSucursal, clearSession, cerrarSesionServidor } from "./auth";
 import CuentaBarra from "./CuentaBarra.jsx";
 import { limpiarPrefsLocal } from "./preferences";
 
@@ -229,7 +229,7 @@ export default function SucursalApp() {
       <Sidebar activa={vista} onIrACortes={() => setVista("cortes")} onIrAInventarios={() => setVista("inventarios")} />
 
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-        <CuentaBarra onCerrarSesion={() => { clearSession(); limpiarPrefsLocal(); window.location.reload(); }} />
+        <CuentaBarra onCerrarSesion={() => { cerrarSesionServidor(); clearSession(); limpiarPrefsLocal(); window.location.reload(); }} />
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 36px 64px", width: "100%", boxSizing: "border-box" }}>
           {!loaded ? (
             <div style={{ fontSize: 13, color: T.muted, marginTop: 40 }}>Cargando…</div>
