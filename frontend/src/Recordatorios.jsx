@@ -32,15 +32,21 @@ function tocarTimbre() {
     audioCtx = audioCtx || new AC();
     if (audioCtx.state === "suspended") audioCtx.resume();
     const t0 = audioCtx.currentTime;
-    [[880, 0], [1175, 0.28], [880, 0.56], [1175, 0.84]].forEach(([f, d]) => {
-      const o = audioCtx.createOscillator();
-      const g = audioCtx.createGain();
-      o.type = "sine"; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0 + d);
-      g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.5);
-      o.connect(g); g.connect(audioCtx.destination);
-      o.start(t0 + d); o.stop(t0 + d + 0.55);
+    // Volumen fuerte: ganancia máxima + una onda cuadrada (más sonora) mezclada con la senoidal.
+    const maestro = audioCtx.createGain();
+    maestro.gain.value = 1;
+    maestro.connect(audioCtx.destination);
+    [[880, 0], [1175, 0.3], [880, 0.6], [1175, 0.9], [880, 1.2], [1175, 1.5]].forEach(([f, d]) => {
+      [["sine", 0.9], ["square", 0.25]].forEach(([tipo, vol]) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.type = tipo; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + d);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + d + 0.015);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.45);
+        o.connect(g); g.connect(maestro);
+        o.start(t0 + d); o.stop(t0 + d + 0.5);
+      });
     });
   } catch { /* el navegador no dejó reproducir: se intenta en el siguiente aviso */ }
 }
@@ -67,7 +73,7 @@ export default function Recordatorios() {
 
   useEffect(() => {
     cargar();
-    const t = setInterval(cargar, 30000);
+    const t = setInterval(cargar, 5000);
     return () => clearInterval(t);
   }, [cargar]);
 
@@ -101,7 +107,7 @@ export default function Recordatorios() {
   const enviados = items.filter((r) => r.creador === yo && r.para === "otro");
   const insignia = invitaciones.length + vencidos.length;
 
-  // Revisa cada 20 s (y cada vez que cambian los datos) si hay algo que deba sonar.
+  // Revisa cada segundo (y cada vez que cambian los datos) si hay algo que deba sonar.
   const itemsRef = useRef(items);
   itemsRef.current = items;
   useEffect(() => {
@@ -127,7 +133,7 @@ export default function Recordatorios() {
       }
     };
     revisar();
-    const t = setInterval(revisar, 20000);
+    const t = setInterval(revisar, 1000);
     return () => clearInterval(t);
   }, [items, yo]);
 
