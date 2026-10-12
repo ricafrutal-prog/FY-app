@@ -20,6 +20,34 @@ const fechaCorta = (iso, hora) => {
   return `${d} ${MESES[m - 1]} ${y}${hora ? ` · ${hora}` : ""}`;
 };
 
+// ---- Timbre (sonido) ----
+// Suena solo con la app abierta: al llegar una invitación nueva y cuando llega la
+// hora de un recordatorio propio. Cada uno suena una sola vez (se recuerda en el
+// navegador). El sonido se genera aquí mismo, no depende de ningún archivo.
+let audioCtx = null;
+function tocarTimbre() {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = audioCtx || new AC();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+    const t0 = audioCtx.currentTime;
+    [[880, 0], [1175, 0.28], [880, 0.56], [1175, 0.84]].forEach(([f, d]) => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t0 + d);
+      g.gain.exponentialRampToValueAtTime(0.35, t0 + d + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.5);
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(t0 + d); o.stop(t0 + d + 0.55);
+    });
+  } catch { /* el navegador no dejó reproducir: se intenta en el siguiente aviso */ }
+}
+const claveTimbrados = (yo) => `fy_rec_timbrados_${yo}`;
+const leerTimbrados = (yo) => { try { return new Set(JSON.parse(localStorage.getItem(claveTimbrados(yo)) || "[]")); } catch { return new Set(); } };
+const guardarTimbrados = (yo, set) => { try { localStorage.setItem(claveTimbrados(yo), JSON.stringify([...set].slice(-300))); } catch { /* sin almacenamiento */ } };
+
 export default function Recordatorios() {
   const yo = getUsername();
   const [abierto, setAbierto] = useState(false);
@@ -39,7 +67,7 @@ export default function Recordatorios() {
 
   useEffect(() => {
     cargar();
-    const t = setInterval(cargar, 60000);
+    const t = setInterval(cargar, 30000);
     return () => clearInterval(t);
   }, [cargar]);
 
@@ -50,6 +78,15 @@ export default function Recordatorios() {
     document.addEventListener("mousedown", fuera);
     return () => document.removeEventListener("mousedown", fuera);
   }, [abierto, cargar]);
+
+  // El navegador solo deja sonar después de que la persona hizo clic en la página.
+  useEffect(() => {
+    const desbloquear = () => {
+      try { const AC = window.AudioContext || window.webkitAudioContext; if (AC) { audioCtx = audioCtx || new AC(); audioCtx.resume(); } } catch { /* nada */ }
+    };
+    document.addEventListener("click", desbloquear, { once: true });
+    return () => document.removeEventListener("click", desbloquear);
+  }, []);
 
   const hoy = hoyLocal();
 
@@ -63,6 +100,36 @@ export default function Recordatorios() {
   const hechos = mios.filter(hechoMio);
   const enviados = items.filter((r) => r.creador === yo && r.para === "otro");
   const insignia = invitaciones.length + vencidos.length;
+
+  // Revisa cada 20 s (y cada vez que cambian los datos) si hay algo que deba sonar.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => {
+    const revisar = () => {
+      const lista = itemsRef.current;
+      if (!lista.length) return;
+      const ahora = new Date();
+      const hhmm = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
+      const hoyS = hoyLocal();
+      const vistos = leerTimbrados(yo);
+      const nuevos = [];
+      lista.forEach((r) => {
+        if (r.destinatario === yo && r.respuesta === "pendiente") nuevos.push(`inv:${r.id}`);
+        const esMio = (r.creador === yo && r.para !== "otro") || (r.destinatario === yo && r.respuesta === "aceptado");
+        const hecho = r.creador === yo ? r.hechoCreador : r.hechoDestinatario;
+        if (esMio && !hecho && (r.fecha < hoyS || (r.fecha === hoyS && (!r.hora || r.hora <= hhmm)))) nuevos.push(`due:${r.id}:${r.fecha}:${r.hora || ""}`);
+      });
+      const sinSonar = nuevos.filter((k) => !vistos.has(k));
+      if (sinSonar.length) {
+        tocarTimbre();
+        sinSonar.forEach((k) => vistos.add(k));
+        guardarTimbrados(yo, vistos);
+      }
+    };
+    revisar();
+    const t = setInterval(revisar, 20000);
+    return () => clearInterval(t);
+  }, [items, yo]);
 
   const mutar = async (url, opciones) => {
     setError("");
