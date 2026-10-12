@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Sparkles, Settings, LogOut, Users } from "lucide-react";
 import { nombreParaSaludo, getUsername } from "./auth";
 import PersonalizarCuenta from "./PersonalizarCuenta.jsx";
+import Recordatorios from "./Recordatorios.jsx";
 import UsuariosConectados from "./UsuariosConectados.jsx";
 
 // Solo esta cuenta ve la opción "Usuarios conectados" (el servidor además
@@ -33,11 +34,12 @@ export default function AccountMenu({ onCerrarSesion }) {
   }, [abierto]);
 
   return (
-    <>
+    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <Recordatorios />
       <div
         ref={wrapRef}
         className="noprint"
-        style={{ position: "relative", display: "inline-block", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}
+        style={{ position: "relative", display: "inline-block", verticalAlign: "middle", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}
       >
         <button
           onClick={() => setAbierto((v) => !v)}
@@ -94,7 +96,7 @@ export default function AccountMenu({ onCerrarSesion }) {
 
       {personalizando && <PersonalizarCuenta onCerrar={() => setPersonalizando(false)} />}
       {esDueno && verConectados && <UsuariosConectados onCerrar={() => setVerConectados(false)} />}
-    </>
+    </div>
   );
 }
 

@@ -4,6 +4,8 @@ import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList } from "./hooks/persistence";
 import { apiFetch, getUsername, getRole } from "./auth";
 import AccountMenu from "./AccountMenu.jsx";
+import HoraInput from "./HoraInput.jsx";
+import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
 
 const LOGO = "./assets/logo.png";
 
@@ -515,6 +517,7 @@ const DEPTOS = [
   { key: "atencion_cliente", nombre: "Atención al Cliente", iconName: "Headphones", metricas: [["Casos abiertos", "18"], ["Satisfacción", "4.5 / 5"]] },
   { key: "auditoria", nombre: "Auditoría Presencial", iconName: "ClipboardCheck", metricas: [["Auditorías del mes", "42"], ["Cumplimiento promedio", "87%"]] },
   { key: "auditoria_interna", nombre: "Cortes", iconName: "ShieldCheck" },
+  { key: "nomina_sucursales", nombre: "Nómina sucursales", iconName: "Wallet", activo: true },
 ];
 
 /* Roles con acceso limitado dentro de Gestión. Lo que no les toca se ve apagado y no
@@ -526,6 +529,9 @@ const DEPTOS = [
 const PERMISOS_ROL = {
   inventarios: { deptos: new Set(["inventarios", "auditoria_interna"]), inicial: "inventarios", paneles: ["auditoria"] },
   auditor: { deptos: new Set(["auditoria_interna"]), inicial: "auditoria_interna", paneles: ["recepcion", "conteo", "salidas", "v1", "v3"] },
+  // Recursos Humanos: Capital Humano, Auditorías Remotas, Mantenimiento y Nómina sucursales completos;
+  // Inventarios solo para mirar (sin agregar ni editar).
+  rrhh: { deptos: new Set(["capital_humano", "video_vigilancia", "mantenimiento", "inventarios", "nomina_sucursales"]), inicial: "capital_humano", paneles: [] },
 };
 const permisosRol = () => PERMISOS_ROL[getRole()] || null;
 const ESTILO_APAGADO = { opacity: 0.3, cursor: "default", pointerEvents: "none" };
@@ -802,7 +808,7 @@ export default function App({ onCerrarSesion }) {
       {modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
-      {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} />}
+      {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
       {depto === "franquicias" && <Franquicias onCerrarSesion={onCerrarSesion} />}
       {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} onCerrarSesion={onCerrarSesion} />}
       {depto === "sucursales_propias" && <SucursalesPropias onCerrarSesion={onCerrarSesion} />}
@@ -810,7 +816,8 @@ export default function App({ onCerrarSesion }) {
       {depto === "video_vigilancia" && <AuditoriasRemotas onCerrarSesion={onCerrarSesion} />}
       {depto === "remodelaciones" && <Remodelaciones onCerrarSesion={onCerrarSesion} />}
       {depto === "auditoria_interna" && <AuditoriaInterna onCerrarSesion={onCerrarSesion} />}
-      {depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} />}
+      {depto === "nomina_sucursales" && <NominaSucursales onCerrarSesion={onCerrarSesion} />}
+      {depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
       {depto === "mantenimiento" && (<>
 
       {/* barra superior */}
@@ -2133,7 +2140,7 @@ function Sidebar({ depto, onPick, permitidos }) {
 }
 
 /* ---------------- INICIO ---------------- */
-function Inicio({ onEnter, mtto }) {
+function Inicio({ onEnter, mtto, onCerrarSesion }) {
   const totalSuc = FRANQUICIAS.length;
   const cartera = FRANQUICIAS.reduce((a, f) => a + fqMontoVencido(f), 0);
   const metricasReales = {
@@ -2143,6 +2150,14 @@ function Inicio({ onEnter, mtto }) {
     sucursales_propias: [["Cumplimiento prom.", `${Math.round(AUDITORIAS.reduce((s, a) => s + a.calif, 0) / AUDITORIAS.length)}%`], ["Auditorías críticas", String(AUDITORIAS.filter((a) => a.calif < 80).length)]],
   };
   return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Inicio</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Resumen general</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
     <div style={{ ...sx.main, width: "100%" }}>
       <div style={sx.hero}>
         <img src={LOGO} alt="Frutal Yogurt" style={{ height: 70, width: "auto" }} />
@@ -2193,6 +2208,7 @@ function Inicio({ onEnter, mtto }) {
         Mantenimiento y Franquicias muestran datos reales del prototipo. Las demás cifras son de ejemplo, para ilustrar cómo se vería el panel completo.
       </div>
     </div>
+    </>
   );
 }
 
@@ -2437,9 +2453,17 @@ function RemoAvance() {
   );
 }
 
-function DeptoPlaceholder({ depto }) {
+function DeptoPlaceholder({ depto, onCerrarSesion }) {
   if (!depto) return null;
   return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>{depto.nombre}</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Próximamente</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
     <div style={{ ...sx.main, width: "100%" }}>
       <div style={{ textAlign: "center", padding: "56px 20px", background: T.card, border: `1px solid ${T.line}`, borderRadius: 16 }}>
         <div style={{ display: "flex", justifyContent: "center", color: T.brand }}><Ico name={depto.iconName} size={46} strokeWidth={1.6} /></div>
@@ -2452,6 +2476,7 @@ function DeptoPlaceholder({ depto }) {
         </span>
       </div>
     </div>
+    </>
   );
 }
 
@@ -4597,6 +4622,58 @@ function AIModalResponsables({ responsablesAI, setResponsablesAI, onCerrar }) {
   );
 }
 
+// Personal de cada sucursal para el "Registro asistencia" (lo que se ve en
+// Sucursales). Solo el administrador agrega o quita nombres; la sucursal
+// únicamente los ve al capturar. Se guarda una sola lista de
+// { nombre, puesto, sucursal }. Quitar a alguien no borra su historial.
+function AIModalEmpleadosAsistencia({ sucursalesAI, empleados, setEmpleados, onCerrar }) {
+  const [suc, setSuc] = useState(sucursalesAI[0] || "");
+  const [nombre, setNombre] = useState("");
+  const [puesto, setPuesto] = useState("");
+  const delaSuc = empleados.filter((e) => e.sucursal === suc);
+  const agregar = () => {
+    const n = nombre.trim();
+    if (!n || !suc) return;
+    if (delaSuc.some((e) => e.nombre.toLowerCase() === n.toLowerCase())) { setNombre(""); return; }
+    setEmpleados((p) => [...p, { nombre: n, puesto: puesto.trim(), sucursal: suc, fechaAlta: fechaLocalISO() }]);
+    setNombre("");
+    setPuesto("");
+  };
+  const quitar = (e) => {
+    if (!window.confirm(`¿Quitar a ${e.nombre} de ${suc}? Lo ya capturado en su historial se conserva.`)) return;
+    setEmpleados((p) => p.filter((x) => !(x.sucursal === e.sucursal && x.nombre === e.nombre)));
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 460, maxWidth: "92vw", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Registro asistencia · personal</div>
+          <button onClick={onCerrar} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={18} color={T.muted} /></button>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginTop: -8 }}>Nombres que cada sucursal verá al capturar su asistencia. Ellos no pueden agregar ni quitar personal.</div>
+        <select value={suc} onChange={(e) => setSuc(e.target.value)} className="sel" style={sx.sel}>
+          {sucursalesAI.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input autoFocus value={nombre} onChange={(e) => setNombre(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }} placeholder="Nombre completo" className="sel" style={{ ...sx.sel, flex: 1.4 }} />
+          <input value={puesto} onChange={(e) => setPuesto(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregar(); }} placeholder="Puesto" className="sel" style={{ ...sx.sel, flex: 1 }} />
+          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>Agregar</button>
+        </div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {delaSuc.map((e) => (
+            <div key={e.nombre} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.paper, borderRadius: 8, padding: "8px 12px" }}>
+              <span style={{ fontSize: 13 }}>{e.nombre}{e.puesto ? <span style={{ color: T.muted }}> · {e.puesto}</span> : null}</span>
+              <button onClick={() => quitar(e)} title="Quitar" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={15} color={T.bad} /></button>
+            </div>
+          ))}
+          {delaSuc.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>Esta sucursal todavía no tiene personal.</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Lo que cada sucursal capturó en Cortes (gastos, descuentos, ventas por
 // app), agrupado por sucursal + fecha. Aquí solo se puede eliminar un día
 // completo a la vez — no hay borrado de un registro suelto — y pide la
@@ -4837,8 +4914,9 @@ function AIModalProductosInventario({ productosInventario, setProductosInventari
   );
 }
 
-function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTerminacionesAI, responsablesAI, setResponsablesAI, cortesSucursal, setCortesSucursal, inventariosSucursal, setInventariosSucursal, productosInventario, setProductosInventario, onSalir }) {
+function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTerminacionesAI, responsablesAI, setResponsablesAI, empleadosAsistencia, setEmpleadosAsistencia, cortesSucursal, setCortesSucursal, inventariosSucursal, setInventariosSucursal, productosInventario, setProductosInventario, onSalir }) {
   const [abierto, setAbierto] = useState(false);
+  const [abiertoAsistencia, setAbiertoAsistencia] = useState(false);
   const [abiertoTerm, setAbiertoTerm] = useState(false);
   const [abiertoResp, setAbiertoResp] = useState(false);
   const [abiertoGastos, setAbiertoGastos] = useState(false);
@@ -4880,6 +4958,15 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTe
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
           <div>
+            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Registro asistencia</div>
+            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Personal de cada sucursal que aparece al capturar su asistencia</div>
+          </div>
+          <button onClick={() => setAbiertoAsistencia(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
+            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
+          </button>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+          <div>
             <div style={{ fontSize: 13.5, fontWeight: 500 }}>Gastos y Descuentos</div>
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Lo capturado por sucursal en Cortes · eliminar por día completo</div>
           </div>
@@ -4910,6 +4997,7 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTe
       {abierto && <AIModalSucursales sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onCerrar={() => setAbierto(false)} />}
       {abiertoTerm && <AIModalTerminaciones sucursalesAI={sucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} onCerrar={() => setAbiertoTerm(false)} />}
       {abiertoResp && <AIModalResponsables responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} onCerrar={() => setAbiertoResp(false)} />}
+      {abiertoAsistencia && <AIModalEmpleadosAsistencia sucursalesAI={sucursalesAI} empleados={empleadosAsistencia} setEmpleados={setEmpleadosAsistencia} onCerrar={() => setAbiertoAsistencia(false)} />}
       {abiertoGastos && <AIModalGastosDescuentos cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} onCerrar={() => setAbiertoGastos(false)} />}
       {abiertoInv && <AIModalInventariosSucursal inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} onCerrar={() => setAbiertoInv(false)} />}
       {abiertoProductos && <AIModalProductosInventario productosInventario={productosInventario} setProductosInventario={setProductosInventario} onCerrar={() => setAbiertoProductos(false)} />}
@@ -5722,6 +5810,7 @@ function AuditoriaInterna({ onCerrarSesion }) {
   const [sucursalesAI, setSucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
   const [terminacionesAI, setTerminacionesAI] = usePersistedList("terminacionesAI", AI_TERMINACIONES_DEFAULT);
   const [responsablesAI, setResponsablesAI] = usePersistedList("responsables_sucursal", []);
+  const [empleadosAsistencia, setEmpleadosAsistencia] = usePersistedList("empleados_asistencia", []);
   const [cortesSucursal, setCortesSucursal, cortesSucursalListos] = usePersistedCollection("gastos_descuentos_sucursal");
   // Se lee aquí también (no solo en el departamento de Inventarios) para
   // poder eliminarlo desde Cortes › Configuración, junto con lo demás que
@@ -5756,9 +5845,564 @@ function AuditoriaInterna({ onCerrarSesion }) {
         {datosListos && panel === "v3" && <AISaldoEfectivo conteos={conteos} salidas={salidas} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "salidas" && <AISalidas salidas={salidas} setSalidas={setSalidas} conteos={conteos} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "auditoria" && <AIAuditoria cuadres={cuadresAuditoria} setCuadres={setCuadresAuditoria} conteos={conteos} sucursales={sucursalesAI} terminacionesAI={terminacionesAI} onSalir={() => setPanel(null)} />}
-        {datosListos && panel === "config" && puedeConfigurar && <AIConfiguracion sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} productosInventario={productosInventario} setProductosInventario={setProductosInventario} onSalir={() => setPanel(null)} />}
+        {datosListos && panel === "config" && puedeConfigurar && <AIConfiguracion sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} empleadosAsistencia={empleadosAsistencia} setEmpleadosAsistencia={setEmpleadosAsistencia} cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} productosInventario={productosInventario} setProductosInventario={setProductosInventario} onSalir={() => setPanel(null)} />}
       </main>
     </>
+  );
+}
+
+/* ============================================================
+   NÓMINA SUCURSALES — llegan aquí los resúmenes de lo que cada sucursal
+   captura en "Registro asistencia". Misma mecánica que "Recepción de Cortes":
+   arriba se eligen opciones en menús desplegables y abajo aparece la
+   información en una tarjeta de "Detalle" (con Exportar y Cerrar).
+     1. Sucursal (o "Todas las sucursales").
+     2. Qué ver: Por día · Resumen general · Rotación · Bajas y alertas.
+        • Por día: lista de días capturados → Ver el detalle de un día.
+        • Resumen general: con un calendario para un rango de fechas o una sola fecha.
+        • Rotación: solo se elige el mes (de enero a diciembre).
+        • Bajas y alertas: por default todos los meses; se puede acotar a uno.
+   Reglas: BAJA con 4 faltas en una ventana de 30 días; ALERTA con 3 (sin llegar a la baja).
+   ============================================================ */
+const MESES_NOM = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const TODAS_SUC = "__todas__";
+const nomTh = { background: T.paper, color: T.ink, fontWeight: 700, fontSize: 12.5, padding: "7px 12px", textAlign: "center" };
+const nomThL = { ...nomTh, textAlign: "left" };
+const nomTd = { padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}`, fontSize: 13, textAlign: "center" };
+const nomTdL = { ...nomTd, textAlign: "left" };
+const nomBtn = (peligro) => ({ border: `1px solid ${peligro ? T.bad : T.line}`, background: "#fff", color: peligro ? T.bad : T.ink, fontSize: 11.5, fontWeight: 600, padding: "4px 10px", borderRadius: 7, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" });
+const COLOR_ESTATUS_NOM = { BAJA: T.bad, ALERTA: "#B45F06", Baja: T.inkSoft };
+
+function NominaSucursales({ onCerrarSesion }) {
+  const [docsBase, setDocs, docsListos] = usePersistedCollection("asistencia_sucursal");
+  const [sobreDocs, setSobreDocs] = useState({}); // días corregidos por administración (Falta/Descanso/Vacaciones)
+  const docs = useMemo(() => docsBase.map((d) => sobreDocs[d.id] || d), [docsBase, sobreDocs]);
+  const [empleados, , setEmpleadosLocal] = usePersistedList("empleados_asistencia", []);
+  const [sucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
+  const nomSel = { ...sx.sel, width: "auto", minWidth: 190 }; // dentro del componente: "sx" se define más abajo en el archivo
+  const hoy = fechaLocalISO();
+  const [sucursal, setSucursal] = useState(TODAS_SUC);
+  const [ver, setVer] = useState(""); // "" | dia | resumen | rotacion | bajas
+  // Resumen general: rango de fechas (si "hasta" queda vacío, es una sola fecha).
+  const [desde, setDesde] = useState(`${mesActual()}-01`);
+  const [hasta, setHasta] = useState(hoy);
+  // Resumen general: se filtra por rango de fechas (calendarios) o por mes completo.
+  const [modoResumen, setModoResumen] = useState("rango"); // rango | mes
+  const [mesRes, setMesRes] = useState(hoy.slice(5, 7));
+  const [anioRes, setAnioRes] = useState(hoy.slice(0, 4));
+  // Rotación: mes y año.
+  const [mesRot, setMesRot] = useState(hoy.slice(5, 7));
+  const [anioRot, setAnioRot] = useState(hoy.slice(0, 4));
+  // Bajas y alertas: por default todos los meses.
+  const [mesBajas, setMesBajas] = useState("todos");
+  const [anioBajas, setAnioBajas] = useState("todos");
+  // Por día: filtros de la lista y el día abierto.
+  const [mesDia, setMesDia] = useState("todos");
+  const [anioDia, setAnioDia] = useState("todos");
+  const [diaAbierto, setDiaAbierto] = useState(null);
+  const [bajaModal, setBajaModal] = useState(null); // { sucursal, nombre, puesto, motivo }
+
+  const sucursales = useMemo(() => {
+    const set = new Set(sucursalesAI);
+    docs.forEach((d) => d.sucursal && set.add(d.sucursal));
+    return [...set];
+  }, [sucursalesAI, docs]);
+  const aniosDisp = useMemo(() => {
+    const set = new Set([hoy.slice(0, 4)]);
+    docs.forEach((d) => set.add(d.fecha.slice(0, 4)));
+    return [...set].sort((a, b) => b.localeCompare(a));
+  }, [docs, hoy]);
+
+  const llamarNomina = async (ruta, cuerpo) => {
+    const r = await apiFetch(`/api/nomina/${ruta}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo completar la acción");
+    setEmpleadosLocal(d);
+  };
+  const clasificarDia = async (doc, empleado, estatus) => {
+    try {
+      const r = await apiFetch("/api/nomina/estatus-dia", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sucursal: doc.sucursal, fecha: doc.fecha, empleado, estatus }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || !d.id) throw new Error(d?.error || "No se pudo guardar el estatus");
+      setSobreDocs((p) => ({ ...p, [d.id]: d }));
+    } catch (e) { window.alert(e.message); }
+  };
+  const guardarHorario = (suc, nombre, entrada, salida) => llamarNomina("horario", { sucursal: suc, nombre, entrada, salida });
+  const confirmarBaja = (datos) => llamarNomina("baja", datos);
+  const reactivar = async (suc, nombre) => {
+    if (!window.confirm(`¿Reactivar a ${nombre}? Volverá a aparecer en la captura de asistencia de ${suc}.`)) return;
+    try { await llamarNomina("reactivar", { sucursal: suc, nombre }); } catch (e) { window.alert(e.message); }
+  };
+  const pedirBaja = (suc, p, motivo) => setBajaModal({ sucursal: suc, nombre: p.nombre, puesto: p.puesto, motivo });
+  const eliminarDia = (d) => {
+    if (!window.confirm(`¿Eliminar la asistencia de ${d.sucursal} del ${d.fecha}? Esto no se puede deshacer; la sucursal podrá volver a capturar ese día.`)) return;
+    setDocs((prev) => prev.filter((x) => x.id !== d.id));
+    setDiaAbierto(null);
+  };
+
+  const cerrar = () => { setVer(""); setDiaAbierto(null); };
+  const lista = sucursal === TODAS_SUC ? sucursales : [sucursal];
+  const subtitulo = { "": "Panel principal", dia: "Por día", resumen: "Resumen general", rotacion: "Rotación de personal", bajas: "Bajas y alertas", horarios: "Horarios del personal" }[ver];
+
+  const selector = (valor, onChange, opciones, ancho) => (
+    <select value={valor} onChange={(e) => onChange(e.target.value)} className="sel" style={{ ...nomSel, minWidth: ancho || nomSel.minWidth }}>
+      {opciones.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+    </select>
+  );
+  const optMeses = (conTodos) => [...(conTodos ? [["todos", "Todos los meses"]] : []), ...MESES_NOM.map((m, i) => [String(i + 1).padStart(2, "0"), m])];
+  const optAnios = (conTodos) => [...(conTodos ? [["todos", "Todos los años"]] : []), ...aniosDisp.map((a) => [a, a])];
+
+  return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Nómina sucursales</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{subtitulo}</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <div style={sx.h1row}><h1 style={sx.h1}>Nómina sucursales</h1><span style={{ fontSize: 12, color: T.muted }}>asistencia y horas capturadas por las sucursales</span></div>
+
+        {!(ver === "dia" && diaAbierto) && <div className="noprint" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 18 }}>
+          <div>
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Sucursal</div>
+            {selector(sucursal, (v) => { setSucursal(v); setDiaAbierto(null); }, [[TODAS_SUC, "Todas las sucursales"], ...sucursales.map((s) => [s, s])], 220)}
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>¿Qué quieres ver?</div>
+            {selector(ver, (v) => { setVer(v); setDiaAbierto(null); }, [["", "Elige una opción…"], ["dia", "Por día"], ["resumen", "Resumen general"], ["rotacion", "Rotación"], ["bajas", "Bajas y alertas"], ["horarios", "Horarios del personal"]], 200)}
+          </div>
+          {ver === "resumen" && (
+            <>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Filtrar por</div>
+                {selector(modoResumen, setModoResumen, [["rango", "Rango de fechas"], ["mes", "Por mes"]], 170)}
+              </div>
+              {modoResumen === "mes" && (
+                <>
+                  <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Año</div>{selector(anioRes, setAnioRes, optAnios(false), 110)}</div>
+                  <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Mes</div>{selector(mesRes, setMesRes, optMeses(false), 150)}</div>
+                </>
+              )}
+              {modoResumen === "rango" && (<>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Desde</div>
+                <input type="date" value={desde} onChange={(e) => setDesde(e.target.value)} className="sel" style={{ ...nomSel, minWidth: 160 }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Hasta <span style={{ opacity: 0.75 }}>(vacío = solo esa fecha)</span></div>
+                <input type="date" value={hasta} min={desde} onChange={(e) => setHasta(e.target.value)} className="sel" style={{ ...nomSel, minWidth: 160 }} />
+              </div>
+              </>)}
+            </>
+          )}
+          {ver === "rotacion" && (
+            <>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Año</div>{selector(anioRot, setAnioRot, optAnios(false), 110)}</div>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Mes</div>{selector(mesRot, setMesRot, optMeses(false), 150)}</div>
+            </>
+          )}
+          {ver === "bajas" && (
+            <>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Año</div>{selector(anioBajas, setAnioBajas, optAnios(true), 150)}</div>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Mes</div>{selector(mesBajas, setMesBajas, optMeses(true), 170)}</div>
+            </>
+          )}
+          {ver === "dia" && (
+            <>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Año</div>{selector(anioDia, setAnioDia, optAnios(true), 150)}</div>
+              <div><div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Mes</div>{selector(mesDia, setMesDia, optMeses(true), 170)}</div>
+            </>
+          )}
+        </div>}
+
+        {!docsListos ? (
+          <div style={sx.empty}>Cargando datos…</div>
+        ) : ver === "" ? (
+          <div style={sx.empty}>Elige una sucursal y qué quieres ver: Por día, Resumen general, Rotación o Bajas y alertas.</div>
+        ) : ver === "dia" ? (
+          <NominaPorDia docs={docs} empleados={empleados} onClasificar={clasificarDia} sucursal={sucursal} mes={mesDia} anio={anioDia} abierto={diaAbierto} setAbierto={setDiaAbierto} onEliminar={eliminarDia} onCerrar={cerrar} />
+        ) : ver === "resumen" ? (
+          <NominaResumen docs={docs} empleados={empleados} sucursal={sucursal} lista={lista} desde={modoResumen === "mes" ? `${anioRes}-${mesRes}-01` : desde} hasta={modoResumen === "mes" ? finDeMes(`${anioRes}-${mesRes}`) : hasta} onBaja={pedirBaja} onReactivar={reactivar} onCerrar={cerrar} />
+        ) : ver === "horarios" ? (
+          <NominaHorarios empleados={empleados} sucursal={sucursal} lista={lista} onGuardar={guardarHorario} onCerrar={cerrar} />
+        ) : ver === "rotacion" ? (
+          <NominaRotacion docs={docs} empleados={empleados} sucursal={sucursal} lista={lista} mes={`${anioRot}-${mesRot}`} onCerrar={cerrar} />
+        ) : (
+          <NominaBajas docs={docs} empleados={empleados} sucursal={sucursal} lista={lista} anio={anioBajas} mes={mesBajas} onBaja={pedirBaja} onReactivar={reactivar} onCerrar={cerrar} />
+        )}
+        {bajaModal && <NominaModalBaja datos={bajaModal} onCerrar={() => setBajaModal(null)} onConfirmar={confirmarBaja} />}
+      </main>
+    </>
+  );
+}
+
+/* Tarjeta de detalle — mismo formato que "Detalle de la recepción":
+   título + Exportar, datos generales en fila, la tabla y el botón Cerrar. */
+function NominaTarjeta({ titulo, tituloArchivo, hechos, exportar, onCerrar, extraAcciones, children }) {
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", display: "grid", gap: 16 }}>
+      <PrintHeader titulo={tituloArchivo} />
+      <div className="noprint" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{titulo}</div>
+        <AIExportMenu titulo={tituloArchivo} columnas={exportar.columnas} filas={exportar.filas} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, fontSize: 13 }}>
+        {hechos.map(([k, v]) => <div key={k}><div style={{ color: T.muted, fontSize: 11 }}>{k}</div><strong>{v}</strong></div>)}
+      </div>
+      <div style={{ overflowX: "auto" }}>{children}</div>
+      <div className="noprint" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {extraAcciones}
+        <button onClick={onCerrar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
+const chipEstatus = (estatus) => {
+  const c = ESTATUS_COLOR[estatus];
+  if (!c) return <span style={{ color: T.muted }}>—</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: c.color, background: c.fondo, whiteSpace: "nowrap" }}>{estatus}</span>;
+};
+
+/* Por día: lista de días capturados (como la lista de recepciones) → Ver. */
+function NominaPorDia({ docs, empleados, onClasificar, sucursal, mes, anio, abierto, setAbierto, onEliminar, onCerrar }) {
+  if (sucursal === TODAS_SUC) return <div style={sx.empty}>Elige una sucursal para ver su asistencia día por día.</div>;
+  const delaSuc = docs.filter((d) => d.sucursal === sucursal && (anio === "todos" || d.fecha.slice(0, 4) === anio) && (mes === "todos" || d.fecha.slice(5, 7) === mes)).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const doc = abierto ? docs.find((d) => d.id === abierto) : null;
+  if (doc) {
+    const columnas = [
+      { titulo: "Empleado", valor: (f) => f.empleado }, { titulo: "Puesto", valor: (f) => f.puesto || "" }, { titulo: "Estatus", valor: (f) => f.estatus },
+      { titulo: "Entrada", valor: (f) => f.entrada || "" }, { titulo: "Salida", valor: (f) => f.salida || "" }, { titulo: "Horas", valor: (f) => fmtHoras(horasDeRegistro(f)) },
+    ];
+    const total = doc.registros.reduce((s, r) => s + horasDeRegistro(r), 0);
+    const horarioPersona = (nombre) => horarioDe(empleados.find((e) => e.sucursal === doc.sucursal && e.nombre === nombre));
+    const infoReg = (r) => {
+      const h = horarioPersona(r.empleado);
+      const est = estatusEfectivo(r, h);
+      return { h, est, cambio: est !== r.estatus, tarde: h && ESTATUS_CON_HORAS.has(r.estatus) ? minutosTarde(r, h) : 0, dif: diferenciaHoras(r, h) };
+    };
+    columnas.splice(3, 0, { titulo: "Horario asignado", valor: (f) => { const h = horarioPersona(f.empleado); return h ? `${h.entrada}-${h.salida}` : ""; } });
+    columnas[2] = { titulo: "Estatus", valor: (f) => infoReg(f).est };
+    columnas.push({ titulo: "Diferencia de horas", valor: (f) => { const i = infoReg(f); return i.h && ESTATUS_CON_HORAS.has(f.estatus) ? fmtHoras(i.dif) : ""; } });
+    return (
+      <NominaTarjeta
+        titulo="Detalle de la asistencia" tituloArchivo={`Asistencia ${doc.sucursal} ${doc.fecha}`}
+        hechos={[["Fecha", doc.fecha], ["Sucursal", doc.sucursal], ["Capturado por", doc.capturadoPor || "—"]]}
+        exportar={{ columnas, filas: doc.registros }} onCerrar={() => setAbierto(null)}
+        extraAcciones={<button onClick={() => onEliminar(doc)} style={nomBtn(true)}>Eliminar este día</button>}
+      >
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomThL}>Estatus</th><th style={nomTh}>Horario asignado</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={{ ...nomTh, textAlign: "right" }}>Horas</th><th style={{ ...nomTh, textAlign: "right" }}>Diferencia</th></tr></thead>
+          <tbody>
+            {doc.registros.map((r) => {
+              const i = infoReg(r);
+              return (
+                <tr key={r.empleado}>
+                  <td style={nomTdL}>{r.empleado}</td><td style={{ ...nomTdL, color: T.muted }}>{r.puesto || "—"}</td>
+                  <td style={nomTdL}>{!r.entrada && !r.salida ? (
+                    <select value={r.estatus} onChange={(ev) => onClasificar(doc, r.empleado, ev.target.value)} className="noprint" style={{ ...sx.sel, width: "auto", minWidth: 130, padding: "5px 8px", fontSize: 12.5, borderColor: r.estatus === "Pendiente" ? T.bad : T.line }}>
+                      {["Pendiente", "Falta", "Descanso", "Vacaciones"].map((e2) => <option key={e2} value={e2}>{e2 === "Pendiente" ? "Pendiente de clasificar" : e2}</option>)}
+                    </select>
+                  ) : chipEstatus(i.est)}{i.cambio && <div style={{ fontSize: 10.5, color: T.bad, marginTop: 2 }}>Llegó {i.tarde} min tarde del horario</div>}</td>
+                  <td style={{ ...nomTd, color: i.h ? undefined : T.muted }}>{i.h ? `${i.h.entrada}–${i.h.salida}` : "Sin horario"}</td>
+                  <td style={{ ...nomTd, color: i.tarde > TOLERANCIA_MIN ? T.bad : undefined, fontWeight: i.tarde > TOLERANCIA_MIN ? 700 : 400 }}>{r.entrada || "—"}</td><td style={nomTd}>{r.salida || "—"}</td>
+                  <td style={{ ...nomTd, textAlign: "right", fontWeight: 600 }}>{fmtHoras(horasDeRegistro(r))}</td>
+                  <td style={{ ...nomTd, textAlign: "right", fontWeight: 700, color: i.dif < 0 ? T.bad : i.dif > 0 ? T.ok : T.muted }}>{i.h && ESTATUS_CON_HORAS.has(r.estatus) ? `${i.dif > 0 ? "+" : ""}${fmtHoras(i.dif)}` : "—"}</td>
+                </tr>
+              );
+            })}
+            <tr><td colSpan={6} style={{ ...nomTdL, fontWeight: 700, background: T.paper }}>Total de horas</td><td style={{ ...nomTd, textAlign: "right", fontWeight: 700, background: T.paper }}>{fmtHoras(total)}</td><td style={{ background: T.paper }}></td></tr>
+          </tbody>
+        </table>
+      </NominaTarjeta>
+    );
+  }
+  return (
+    <div>
+      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>Días capturados por {sucursal}</div>
+      {delaSuc.length === 0 ? (
+        <div style={sx.empty}>La sucursal no tiene capturas con ese filtro.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {delaSuc.map((d) => (
+            <div key={d.id} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <strong>{d.fecha}</strong>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.ok, background: T.okSoft }}>Capturado</span>
+                </div>
+                <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{d.registros.length} persona{d.registros.length === 1 ? "" : "s"} · {fmtHoras(d.registros.reduce((s, r) => s + horasDeRegistro(r), 0))} horas{d.capturadoPor ? ` · capturó ${d.capturadoPor}` : ""}</div>
+              </div>
+              <button onClick={() => setAbierto(d.id)} style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="noprint" style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+        <button onClick={onCerrar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
+/* Resumen general: una fila por sucursal con lo acumulado en el periodo
+   (mes o rango de fechas), a partir de lo que captura cada sucursal.
+   Baja = persona con 4 o más faltas en el periodo (o dada de baja en él);
+   En alerta = persona con 3 faltas en el periodo. */
+function NominaResumen({ docs, empleados, sucursal, lista, desde, hasta, onCerrar }) {
+  if (!desde) return <div style={sx.empty}>Elige una fecha en el calendario.</div>;
+  let d1 = desde, d2 = hasta || desde;
+  if (d1 > d2) [d1, d2] = [d2, d1];
+  const periodo = d1 === d2 ? fechaDDMMAAAA(d1) : `${fechaDDMMAAAA(d1)} al ${fechaDDMMAAAA(d2)}`;
+  const sucursales = sucursal === TODAS_SUC ? lista : [sucursal];
+
+  const filas = sucursales.map((s) => {
+    const delaSuc = docs.filter((d) => d.sucursal === s);
+    const personal = personalDeSucursal(empleados, delaSuc, s).filter((p) => !p.fechaBaja || p.fechaBaja >= d1);
+    const acc = { sucursal: s, asistencias: 0, retardos: 0, faltas: 0, descansos: 0, vacaciones: 0, horas: 0, dias: 0, bajas: 0, alertas: 0, altas: 0, final: 0, pendientes: 0, capturados: delaSuc.filter((d) => d.fecha >= d1 && d.fecha <= d2).length };
+    personal.forEach((p) => {
+      const r = resumenEmpleado(delaSuc, p.nombre, d1, d2, horarioDe(p));
+      acc.asistencias += r.asistencias; acc.retardos += r.retardos; acc.faltas += r.faltas; acc.descansos += r.descansos; acc.vacaciones += r.vacaciones; acc.horas += r.horas; acc.dias += r.dias; acc.pendientes += r.pendientes;
+      const bajaPeriodo = r.faltas >= UMBRAL_BAJA || (p.fechaBaja && p.fechaBaja >= d1 && p.fechaBaja <= d2);
+      if (bajaPeriodo) acc.bajas++;
+      else if (r.faltas === UMBRAL_ALERTA) acc.alertas++;
+      if (p.fechaAlta && p.fechaAlta >= d1 && p.fechaAlta <= d2) acc.altas++;
+      if (!bajaPeriodo && (!p.fechaAlta || p.fechaAlta <= d2)) acc.final++;
+    });
+    acc.horas = Math.round(acc.horas * 100) / 100;
+    acc.promedio = acc.dias ? acc.horas / acc.dias : 0;
+    acc.inicial = acc.final - acc.altas + acc.bajas;
+    const prom = (acc.inicial + acc.final) / 2;
+    acc.rotacion = prom ? (acc.bajas / prom) * 100 : 0;
+    return acc;
+  });
+  const t = filas.reduce((a, f) => ({ asistencias: a.asistencias + f.asistencias, retardos: a.retardos + f.retardos, faltas: a.faltas + f.faltas, descansos: a.descansos + f.descansos, vacaciones: a.vacaciones + f.vacaciones, horas: a.horas + f.horas, dias: a.dias + f.dias, bajas: a.bajas + f.bajas, alertas: a.alertas + f.alertas, inicial: a.inicial + f.inicial, final: a.final + f.final }), { asistencias: 0, retardos: 0, faltas: 0, descansos: 0, vacaciones: 0, horas: 0, dias: 0, bajas: 0, alertas: 0, inicial: 0, final: 0 });
+  t.promedio = t.dias ? t.horas / t.dias : 0;
+  const promT = (t.inicial + t.final) / 2;
+  t.rotacion = promT ? (t.bajas / promT) * 100 : 0;
+  const columnas = [
+    { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Asistencias", valor: (f) => f.asistencias }, { titulo: "Retardos", valor: (f) => f.retardos }, { titulo: "Faltas", valor: (f) => f.faltas },
+    { titulo: "Descansos", valor: (f) => f.descansos }, { titulo: "Vacaciones", valor: (f) => f.vacaciones }, { titulo: "Horas del periodo", valor: (f) => fmtHoras(f.horas) },
+    { titulo: "Promedio horas / día trabajado", valor: (f) => fmtHoras(f.promedio) }, { titulo: "Bajas del periodo", valor: (f) => f.bajas }, { titulo: "En alerta", valor: (f) => f.alertas }, { titulo: "Rotación %", valor: (f) => `${f.rotacion.toFixed(1)}%` },
+  ];
+  const celdas = (f, negrita) => [f.asistencias, f.retardos, f.faltas, f.descansos, f.vacaciones, fmtHoras(f.horas), fmtHoras(f.promedio), f.bajas, f.alertas, `${f.rotacion.toFixed(1)}%`];
+  return (
+    <NominaTarjeta titulo="Resumen general" tituloArchivo={`Nomina general ${d1} ${d2}`} hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Periodo", periodo]]} exportar={{ columnas, filas: filas.length > 1 ? [...filas, { sucursal: "TOTAL", ...t }] : filas }} onCerrar={onCerrar}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>{columnas.map((c, i) => <th key={c.titulo} style={i === 0 ? nomThL : nomTh}>{c.titulo}</th>)}</tr></thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.sucursal}>
+              <td style={{ ...nomTdL, fontWeight: 600 }}>{f.sucursal}{f.capturados === 0 && <span style={{ fontSize: 10.5, color: T.muted, fontWeight: 400 }}> · sin capturas</span>}</td>
+              {celdas(f).map((v, i) => <td key={i} style={{ ...nomTd, fontWeight: i === 5 || i === 9 ? 700 : 400, color: (i === 2 && f.faltas) || (i === 7 && f.bajas) ? T.bad : (i === 8 && f.alertas) ? "#B45F06" : undefined }}>{v}</td>)}
+            </tr>
+          ))}
+          {filas.length > 1 && (
+            <tr style={{ background: T.paper }}>
+              <td style={{ ...nomTdL, fontWeight: 700 }}>TOTAL</td>
+              {celdas(t).map((v, i) => <td key={i} style={{ ...nomTd, fontWeight: 700 }}>{v}</td>)}
+            </tr>
+          )}
+        </tbody>
+      </table>
+      {filas.some((f) => f.pendientes > 0) && (
+        <div style={{ marginTop: 12, background: "#FFF2CC", border: "1px solid #E8C45C", color: "#7A5B00", borderRadius: 8, padding: "9px 12px", fontSize: 12.5 }}>
+          Hay {filas.reduce((s, f) => s + f.pendientes, 0)} registro(s) sin hora que aún no se clasifican como Falta, Descanso o Vacaciones; no están contados en ninguna columna. Clasifícalos en "Por día".
+        </div>
+      )}
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
+        Bajas = personas con {UMBRAL_BAJA} o más faltas en el periodo (o dadas de baja en él). En alerta = personas con {UMBRAL_ALERTA} faltas en el periodo. Rotación % = bajas ÷ promedio de (plantilla inicial, plantilla final).
+      </div>
+    </NominaTarjeta>
+  );
+}
+
+/* Horarios del personal: la hora de entrada y salida que le toca a cada persona.
+   La sucursal no la ve; solo captura la hora real y el sistema compara. */
+function NominaHorarios({ empleados, sucursal, lista, onGuardar, onCerrar }) {
+  const personal = empleados.filter((e) => lista.includes(e.sucursal) && !e.fechaBaja)
+    .sort((x, y) => x.sucursal.localeCompare(y.sucursal, "es") || x.nombre.localeCompare(y.nombre, "es"));
+  const [edit, setEdit] = useState({}); // clave -> { entrada, salida }
+  const [guardando, setGuardando] = useState("");
+  const clave = (e) => `${e.sucursal}|${e.nombre}`;
+  const valor = (e) => edit[clave(e)] || { entrada: e.horaEntrada || "", salida: e.horaSalida || "" };
+  const poner = (e, campo, v) => setEdit((p) => ({ ...p, [clave(e)]: { ...valor(e), [campo]: v } }));
+  const guardar = async (e) => {
+    const v = valor(e);
+    if ((v.entrada && !v.salida) || (!v.entrada && v.salida)) { window.alert("Captura la hora de entrada y la de salida completas (HH:MM)."); return; }
+    setGuardando(clave(e));
+    try { await onGuardar(e.sucursal, e.nombre, v.entrada, v.salida); setEdit((p) => { const { [clave(e)]: _, ...resto } = p; return resto; }); }
+    catch (err) { window.alert(err.message); }
+    setGuardando("");
+  };
+  const columnas = [
+    { titulo: "Sucursal", valor: (e) => e.sucursal }, { titulo: "Empleado", valor: (e) => e.nombre }, { titulo: "Puesto", valor: (e) => e.puesto || "" },
+    { titulo: "Entrada", valor: (e) => e.horaEntrada || "" }, { titulo: "Salida", valor: (e) => e.horaSalida || "" }, { titulo: "Horas", valor: (e) => (e.horaEntrada ? fmtHoras(horasEsperadas(horarioDe(e))) : "") },
+  ];
+  const campoH = { ...sx.sel, width: 90, textAlign: "center", padding: "6px 8px" };
+  return (
+    <NominaTarjeta titulo="Horarios del personal" tituloArchivo="Horarios del personal" hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Personas", String(personal.length)]]} exportar={{ columnas, filas: personal }} onCerrar={onCerrar}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>{sucursal === TODAS_SUC && <th style={nomThL}>Sucursal</th>}<th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={nomTh}>Horas</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
+        <tbody>
+          {personal.map((e) => {
+            const v = valor(e);
+            const cambiado = (v.entrada || "") !== (e.horaEntrada || "") || (v.salida || "") !== (e.horaSalida || "");
+            const hrs = v.entrada && v.salida && /^\d\d:\d\d$/.test(v.entrada) && /^\d\d:\d\d$/.test(v.salida) ? horasEsperadas({ entrada: v.entrada, salida: v.salida }) : null;
+            return (
+              <tr key={clave(e)}>
+                {sucursal === TODAS_SUC && <td style={{ ...nomTdL, color: T.muted }}>{e.sucursal}</td>}
+                <td style={{ ...nomTdL, fontWeight: 600 }}>{e.nombre}</td><td style={{ ...nomTdL, color: T.muted }}>{e.puesto || "—"}</td>
+                <td style={nomTd}><HoraInput value={v.entrada} onChange={(h) => poner(e, "entrada", h)} style={campoH} /></td>
+                <td style={nomTd}><HoraInput value={v.salida} onChange={(h) => poner(e, "salida", h)} style={campoH} /></td>
+                <td style={{ ...nomTd, fontWeight: 600 }}>{hrs === null ? "—" : fmtHoras(hrs)}</td>
+                <td style={nomTd} className="noprint">
+                  {cambiado ? <button onClick={() => guardar(e)} disabled={guardando === clave(e)} style={{ ...nomBtn(false), background: T.brand, color: "#fff", border: "none" }}>{guardando === clave(e) ? "Guardando…" : "Guardar"}</button>
+                    : (e.horaEntrada ? <span style={{ fontSize: 11.5, color: T.ok, fontWeight: 600 }}>Guardado</span> : <span style={{ fontSize: 11.5, color: T.muted }}>Sin horario</span>)}
+                </td>
+              </tr>
+            );
+          })}
+          {personal.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cortes › Configuración › Registro asistencia.</td></tr>}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
+        Formato de 24 horas (por ejemplo 12:00 a 20:00). Con horario asignado, si la sucursal captura "Asistió" pero la entrada es más de {TOLERANCIA_MIN} minutos después de la hora, el sistema lo cuenta como Retardo; y en el detalle por día se ve la diferencia de horas contra lo que le tocaba. La sucursal no ve estos horarios.
+      </div>
+    </NominaTarjeta>
+  );
+}
+
+/* Rotación de personal en un mes (mes calendario completo). */
+function NominaRotacion({ docs, empleados, sucursal, lista, mes, onCerrar }) {
+  const filas = lista.map((s) => { const delaSuc = docs.filter((d) => d.sucursal === s); return { sucursal: s, ...rotacionSucursal(personalDeSucursal(empleados, delaSuc, s), delaSuc, mes) }; });
+  const t = filas.reduce((a, f) => ({ inicial: a.inicial + f.inicial, altas: a.altas + f.altas, bajasFaltas: a.bajasFaltas + f.bajasFaltas, otras: a.otras + f.otras, bajas: a.bajas + f.bajas, final: a.final + f.final, alertas: a.alertas + f.alertas }), { inicial: 0, altas: 0, bajasFaltas: 0, otras: 0, bajas: 0, final: 0, alertas: 0 });
+  const promT = (t.inicial + t.final) / 2;
+  t.rotacion = promT ? (t.bajas / promT) * 100 : 0;
+  const columnas = [
+    { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Plantilla inicial", valor: (f) => f.inicial }, { titulo: "Altas del mes", valor: (f) => f.altas },
+    { titulo: "Bajas por faltas (automáticas)", valor: (f) => f.bajasFaltas }, { titulo: "Otras bajas (renuncia, etc.)", valor: (f) => f.otras }, { titulo: "Bajas totales", valor: (f) => f.bajas },
+    { titulo: "Plantilla final", valor: (f) => f.final }, { titulo: "Rotación %", valor: (f) => `${f.rotacion.toFixed(1)}%` }, { titulo: "En ALERTA (seguimiento mes siguiente)", valor: (f) => f.alertas },
+  ];
+  const nombreMes = `${MESES_NOM[Number(mes.slice(5, 7)) - 1]} ${mes.slice(0, 4)}`;
+  return (
+    <NominaTarjeta titulo="Rotación de personal" tituloArchivo={`Rotacion ${mes}`} hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Mes", nombreMes]]} exportar={{ columnas, filas: [...filas, { sucursal: "TOTAL", ...t }] }} onCerrar={onCerrar}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr><th style={nomThL}>Sucursal</th><th style={nomTh}>Plantilla inicial</th><th style={nomTh}>Altas del mes</th><th style={nomTh}>Bajas por faltas (automáticas)</th><th style={nomTh}>Otras bajas (renuncia, etc.)</th><th style={nomTh}>Bajas totales</th><th style={nomTh}>Plantilla final</th><th style={nomTh}>Rotación %</th><th style={nomTh}>En ALERTA (seguimiento mes siguiente)</th></tr></thead>
+        <tbody>
+          {filas.map((f) => (
+            <tr key={f.sucursal}>
+              <td style={{ ...nomTdL, fontWeight: 600 }}>{f.sucursal}</td>
+              <td style={nomTd}>{f.inicial}</td><td style={nomTd}>{f.altas}</td><td style={nomTd}>{f.bajasFaltas}</td><td style={nomTd}>{f.otras}</td><td style={{ ...nomTd, fontWeight: 600 }}>{f.bajas}</td><td style={nomTd}>{f.final}</td>
+              <td style={{ ...nomTd, fontWeight: 700, color: f.rotacion > 0 ? T.bad : undefined }}>{f.rotacion.toFixed(1)}%</td>
+              <td style={{ ...nomTd, color: f.alertas ? "#B45F06" : undefined, fontWeight: f.alertas ? 700 : 400 }}>{f.alertas}</td>
+            </tr>
+          ))}
+          {filas.length > 1 && (
+            <tr style={{ background: T.paper }}>
+              <td style={{ ...nomTdL, fontWeight: 700 }}>TOTAL</td>
+              {[t.inicial, t.altas, t.bajasFaltas, t.otras, t.bajas, t.final].map((v, i) => <td key={i} style={{ ...nomTd, fontWeight: 700 }}>{v}</td>)}
+              <td style={{ ...nomTd, fontWeight: 700 }}>{t.rotacion.toFixed(1)}%</td><td style={{ ...nomTd, fontWeight: 700 }}>{t.alertas}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
+        <div>Plantilla final = personas vigentes al cierre del mes. Plantilla inicial = plantilla final − altas + bajas. Rotación % = bajas totales ÷ promedio de (plantilla inicial, plantilla final).</div>
+        <div>Reglas: BAJA con {UMBRAL_BAJA} faltas en {VENTANA_ALERTA_DIAS} días · ALERTA con {UMBRAL_ALERTA} faltas (sin llegar a la baja).</div>
+      </div>
+    </NominaTarjeta>
+  );
+}
+
+/* Bajas y alertas: quién está en BAJA (por faltas, por confirmar), en ALERTA o
+   ya fue dado de baja. Sin mes elegido se mira todo el historial hasta hoy. */
+function NominaBajas({ docs, empleados, sucursal, lista, anio, mes, onBaja, onReactivar, onCerrar }) {
+  const hoy = fechaLocalISO();
+  // Sin año ni mes: todo el historial hasta hoy. Solo año: ese año. Con mes: ese mes (del año elegido, o del actual si no se eligió).
+  const anioEf = anio === "todos" ? hoy.slice(0, 4) : anio;
+  let ini, fin;
+  if (mes !== "todos") { ini = `${anioEf}-${mes}-01`; fin = finDeMes(`${anioEf}-${mes}`); }
+  else if (anio !== "todos") { ini = `${anio}-01-01`; fin = `${anio}-12-31`; }
+  else { ini = "0000-01-01"; fin = hoy; }
+  const filas = [];
+  lista.forEach((s) => {
+    const delaSuc = docs.filter((d) => d.sucursal === s);
+    personalDeSucursal(empleados, delaSuc, s).filter((p) => p.activo).forEach((p) => {
+      if (p.fechaBaja && (p.fechaBaja < ini || p.fechaBaja > fin)) return;
+      const r = resumenEmpleado(delaSuc, p.nombre, ini, fin, horarioDe(p));
+      const estatus = estatusPersona(p, r);
+      if (estatus === "Activo") return;
+      filas.push({ sucursal: s, nombre: p.nombre, puesto: p.puesto, faltas: r.faltas, max: r.maxFaltas, ultimos: r.faltasUltimos, estatus, fechaBaja: p.fechaBaja, motivoBaja: p.motivoBaja });
+    });
+  });
+  const orden = { BAJA: 0, ALERTA: 1, Baja: 2 };
+  filas.sort((a, b) => orden[a.estatus] - orden[b.estatus] || a.sucursal.localeCompare(b.sucursal, "es") || a.nombre.localeCompare(b.nombre, "es"));
+  const columnas = [
+    { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Empleado", valor: (f) => f.nombre }, { titulo: "Puesto", valor: (f) => f.puesto || "" },
+    { titulo: "Faltas del periodo", valor: (f) => f.faltas }, { titulo: "Máx. faltas en la ventana", valor: (f) => f.max }, { titulo: "Faltas últimos días del periodo", valor: (f) => f.ultimos },
+    { titulo: "Estatus", valor: (f) => f.estatus }, { titulo: "Fecha de baja", valor: (f) => (f.fechaBaja ? fechaDDMMAAAA(f.fechaBaja) : "") },
+  ];
+  const periodo = mes !== "todos" ? `${MESES_NOM[Number(mes) - 1]} ${anioEf}` : anio !== "todos" ? `Todo ${anio}` : "Todos los meses";
+  return (
+    <NominaTarjeta titulo="Bajas y alertas" tituloArchivo={`Bajas y alertas ${mes === "todos" && anio === "todos" ? "todos" : `${anioEf}-${mes}`}`} hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Periodo", periodo]]} exportar={{ columnas, filas }} onCerrar={onCerrar}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr><th style={nomTh}>#</th><th style={nomThL}>Sucursal</th><th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Faltas del periodo</th><th style={nomTh}>Máx. faltas en la ventana</th><th style={nomTh}>Faltas últimos días del periodo</th><th style={nomTh}>Estatus</th><th style={nomTh}>Fecha de baja</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
+        <tbody>
+          {filas.map((f, i) => (
+            <tr key={f.sucursal + f.nombre} style={f.estatus === "BAJA" ? { background: "#F8D7D4" } : f.estatus === "ALERTA" ? { background: "#FFF2CC" } : undefined}>
+              <td style={nomTd}>{i + 1}</td><td style={nomTdL}>{f.sucursal}</td><td style={{ ...nomTdL, fontWeight: 600 }}>{f.nombre}</td><td style={{ ...nomTdL, color: T.muted }}>{f.puesto || "—"}</td>
+              <td style={nomTd}>{f.faltas}</td><td style={nomTd}>{f.max}</td><td style={nomTd}>{f.ultimos}</td>
+              <td style={{ ...nomTd, fontWeight: 700, color: COLOR_ESTATUS_NOM[f.estatus] }}>{f.estatus === "Baja" ? `Baja (${MOTIVOS_BAJA[f.motivoBaja] || "—"})` : f.estatus}</td>
+              <td style={nomTd}>{f.fechaBaja ? fechaDDMMAAAA(f.fechaBaja) : ""}</td>
+              <td style={nomTd} className="noprint">
+                {f.estatus === "Baja" ? <button onClick={() => onReactivar(f.sucursal, f.nombre)} style={nomBtn(false)}>Reactivar</button>
+                  : <button onClick={() => onBaja(f.sucursal, { nombre: f.nombre, puesto: f.puesto }, f.estatus === "BAJA" ? "faltas" : "renuncia")} style={nomBtn(true)}>{f.estatus === "BAJA" ? "Confirmar baja" : "Dar de baja"}</button>}
+              </td>
+            </tr>
+          ))}
+          {filas.length === 0 && <tr><td colSpan={10} style={{ ...nomTd, color: T.muted, padding: 20 }}>Nadie está en baja ni en alerta con esos filtros.</td></tr>}
+        </tbody>
+      </table>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12 }}>BAJA = {UMBRAL_BAJA} faltas en {VENTANA_ALERTA_DIAS} días (se confirma con el botón) · ALERTA = {UMBRAL_ALERTA} faltas en {VENTANA_ALERTA_DIAS} días (dar seguimiento el mes siguiente).</div>
+    </NominaTarjeta>
+  );
+}
+
+function NominaModalBaja({ datos, onCerrar, onConfirmar }) {
+  const [motivo, setMotivo] = useState(datos.motivo);
+  const [fecha, setFecha] = useState(fechaLocalISO());
+  const [guardando, setGuardando] = useState(false);
+  const [error, setError] = useState("");
+  const confirmar = async () => {
+    setGuardando(true); setError("");
+    try { await onConfirmar({ sucursal: datos.sucursal, nombre: datos.nombre, motivo, fecha }); onCerrar(); }
+    catch (e) { setError(e.message || "No se pudo dar de baja"); setGuardando(false); }
+  };
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,20,.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200 }} onClick={onCerrar}>
+      <div style={{ background: "#fff", borderRadius: 14, padding: 22, width: 400, maxWidth: "92vw", boxShadow: "0 12px 40px rgba(0,0,0,.25)", display: "grid", gap: 14 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Dar de baja a {datos.nombre}</div>
+        <div style={{ fontSize: 12, color: T.muted, marginTop: -6 }}>{datos.sucursal}{datos.puesto ? ` · ${datos.puesto}` : ""}. Dejará de aparecer en la captura de asistencia de la sucursal; su historial se conserva y puedes reactivarla después.</div>
+        <div>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Motivo</div>
+          <select value={motivo} onChange={(e) => setMotivo(e.target.value)} className="sel" style={sx.sel}>
+            {Object.entries(MOTIVOS_BAJA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Fecha de baja</div>
+          <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} />
+        </div>
+        {error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          <button onClick={onCerrar} style={{ border: `1px solid ${T.line}`, background: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+          <button onClick={confirmar} disabled={guardando || !fecha} style={{ border: "none", background: T.bad, color: "#fff", borderRadius: 8, padding: "8px 16px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", opacity: guardando ? 0.6 : 1, fontFamily: "inherit" }}>{guardando ? "Guardando…" : "Confirmar baja"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -5996,6 +6640,7 @@ function Inventarios({ inv, setInv, invMes, setInvMes, onCerrarSesion }) {
   const secMeta = INV_SECCIONES.find((s) => s.key === sec);
   const draftFlushRef = useRef(null);
   const [conteosDiarios] = usePersistedCollection("conteos_diarios_inventario");
+  const soloLectura = getRole() === "rrhh";
   const irASecciones = () => {
     if (draftFlushRef.current) draftFlushRef.current(); // si hay una captura en curso, se guarda como borrador antes de salir
     setSec(null);
@@ -6012,7 +6657,13 @@ function Inventarios({ inv, setInv, invMes, setInvMes, onCerrarSesion }) {
           <AccountMenu onCerrarSesion={onCerrarSesion} />
         </nav>
       </header>
-      <main style={sx.main}>
+      <main style={sx.main} data-solo-lectura={soloLectura ? "1" : undefined}>
+        {soloLectura && (
+          <>
+            <style dangerouslySetInnerHTML={{ __html: `[data-solo-lectura] input:not([type=month]):not([type=date]), [data-solo-lectura] textarea { pointer-events: none; background: #F7F7F5; } [data-solo-lectura] .actbtn { display: none !important; }` }} />
+            <div className="noprint" style={{ background: T.lineSoft, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 12px", fontSize: 12, color: T.inkSoft, marginBottom: 14 }}>Solo lectura: puedes consultar Inventarios, pero no agregar ni editar información.</div>
+          </>
+        )}
         {!sec && <InvHome invMes={invMes} onEnter={setSec} />}
         {sec === "mensuales" && <InvMensuales invMes={invMes} setInvMes={setInvMes} draftFlushRef={draftFlushRef} usuario={usuario} />}
         {sec === "diario" && <InvDiario />}

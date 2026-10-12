@@ -7,12 +7,14 @@
 // servidor (ver server.js / checkCollectionRole), así que aunque alguien
 // abriera las herramientas del navegador no podría tocar nada ajeno.
 import { useState, useRef, useEffect } from "react";
-import { ShieldCheck, Receipt, UserMinus, Smartphone, ChevronLeft, Boxes, Plus, Trash2, Download, ChevronDown, Printer, FileText, Sheet, Check, X } from "lucide-react";
+import HoraInput, { enterAvanza } from "./HoraInput.jsx";
+import { ShieldCheck, Receipt, UserMinus, Smartphone, ChevronLeft, Boxes, Plus, Trash2, Download, ChevronDown, Printer, FileText, Sheet, Check, X, ClipboardList } from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList, agregarValorLista } from "./hooks/persistence";
-import { getSucursal, clearSession, cerrarSesionServidor } from "./auth";
+import { getSucursal, clearSession, cerrarSesionServidor, apiFetch } from "./auth";
 import CuentaBarra from "./CuentaBarra.jsx";
 import { limpiarPrefsLocal } from "./preferences";
+import { ESTATUS, ESTATUS_CON_HORAS, ESTATUS_COLOR, idAsistencia, fechaLocalISO, horasEntre, horasDeRegistro, fmtHoras } from "./asistenciaUtil";
 
 const LOGO = "/assets/logo.png";
 
@@ -201,12 +203,34 @@ const TIPOS = {
 //   Cortes:       cortes (listado, como "Recepción de Cortes") | cortes-captura (captura)
 //   Inventarios:  inventarios (listado, como "Recepción de Cortes") | inventarios-conteo (captura)
 const VISTAS_CORTES = ["cortes", "cortes-captura"];
+const VISTAS_ASISTENCIA = ["asistencia", "asistencia-captura"];
+
+// Lista de solo lectura (la maneja el administrador): carga una vez y avisa
+// cuándo ya llegó. A diferencia de usePersistedList, no intenta sembrarla.
+function useListaSoloLectura(name) {
+  const [items, setItems] = useState([]);
+  const [listo, setListo] = useState(false);
+  useEffect(() => {
+    let cancelado = false;
+    apiFetch(`/api/lists/${name}`)
+      .then(async (r) => {
+        const d = await r.json().catch(() => null);
+        if (!cancelado && r.ok && Array.isArray(d)) setItems(d);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelado) setListo(true); });
+    return () => { cancelado = true; };
+  }, [name]);
+  return [items, listo];
+}
 
 export default function SucursalApp() {
   const sucursal = getSucursal();
   const [items, setItems, loadedCortes] = usePersistedCollection("gastos_descuentos_sucursal");
   const [productos, setProductos, loadedProductos] = usePersistedCollection("productos_inventario");
   const [conteos, setConteos, loadedConteos] = usePersistedCollection("conteos_diarios_inventario");
+  const [asistencias, setAsistencias, loadedAsistencia] = usePersistedCollection("asistencia_sucursal");
+  const [empleados, empleadosListos] = useListaSoloLectura("empleados_asistencia");
   const [responsablesAI, , setResponsablesLocal] = usePersistedList("responsables_sucursal", []);
   const [vista, setVista] = useState("cortes");
 
@@ -221,12 +245,13 @@ export default function SucursalApp() {
   };
 
   const enCortes = VISTAS_CORTES.includes(vista);
-  const loaded = enCortes ? loadedCortes : loadedProductos && loadedConteos;
+  const enAsistencia = VISTAS_ASISTENCIA.includes(vista);
+  const loaded = enCortes ? loadedCortes : enAsistencia ? loadedAsistencia && empleadosListos : loadedProductos && loadedConteos;
 
   return (
     <div id="fy-app-shell" style={{ minHeight: "100vh", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS_IMPRESION }} />
-      <Sidebar activa={vista} onIrACortes={() => setVista("cortes")} onIrAInventarios={() => setVista("inventarios")} />
+      <Sidebar activa={vista} onIrACortes={() => setVista("cortes")} onIrAInventarios={() => setVista("inventarios")} onIrAAsistencia={() => setVista("asistencia")} />
 
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <CuentaBarra onCerrarSesion={() => { cerrarSesionServidor(); clearSession(); limpiarPrefsLocal(); window.location.reload(); }} />
@@ -237,6 +262,10 @@ export default function SucursalApp() {
             <CortesRegistro sucursal={sucursal} items={items} onNuevo={() => setVista("cortes-captura")} />
           ) : vista === "cortes-captura" ? (
             <CortesCaptura sucursal={sucursal} items={items} setItems={setItems} responsablesAI={responsablesAI} onAgregarResponsable={agregarResponsable} onVolver={() => setVista("cortes")} />
+          ) : vista === "asistencia" ? (
+            <AsistenciaRegistro sucursal={sucursal} items={asistencias} empleados={empleados} onNuevo={() => setVista("asistencia-captura")} />
+          ) : vista === "asistencia-captura" ? (
+            <AsistenciaCaptura sucursal={sucursal} items={asistencias} setItems={setAsistencias} empleados={empleados} onVolver={() => setVista("asistencia")} />
           ) : vista === "inventarios" ? (
             <InventariosRegistro sucursal={sucursal} conteos={conteos} onNuevo={() => setVista("inventarios-conteo")} />
           ) : (
@@ -250,9 +279,10 @@ export default function SucursalApp() {
 
 // Barra oscura con el logo, "Sucursales" y los dos apartados disponibles:
 // "Cortes" e "Inventarios".
-function Sidebar({ activa, onIrACortes, onIrAInventarios }) {
+function Sidebar({ activa, onIrACortes, onIrAInventarios, onIrAAsistencia }) {
   const enCortes = VISTAS_CORTES.includes(activa);
-  const enInventarios = !enCortes;
+  const enAsistencia = VISTAS_ASISTENCIA.includes(activa);
+  const enInventarios = !enCortes && !enAsistencia;
   return (
     <aside className="noprint" style={{ width: 210, flexShrink: 0, background: T.ink, color: "#fff", padding: "20px 14px", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
       <div style={{ padding: "2px 8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -273,6 +303,13 @@ function Sidebar({ activa, onIrACortes, onIrAInventarios }) {
         >
           <span style={{ width: 22, display: "flex", justifyContent: "center" }}><Boxes size={17} /></span>
           <span style={{ flex: 1, textAlign: "left", fontSize: 13 }}>Inventarios</span>
+        </button>
+        <button
+          onClick={onIrAAsistencia}
+          style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", borderRadius: 9, border: "none", outline: "none", boxShadow: "none", cursor: "pointer", width: "100%", background: enAsistencia ? T.brand : "transparent", color: "#fff", fontWeight: 700, fontFamily: "inherit" }}
+        >
+          <span style={{ width: 22, display: "flex", justifyContent: "center" }}><ClipboardList size={17} /></span>
+          <span style={{ flex: 1, textAlign: "left", fontSize: 13 }}>Registro asistencia</span>
         </button>
       </div>
       <div style={{ marginTop: "auto", paddingTop: 18, fontSize: 10, color: "rgba(255,255,255,.4)", lineHeight: 1.5 }}>
@@ -1140,5 +1177,265 @@ function InventariosDetalle({ sucursal, fecha, items, onCerrar }) {
         <button onClick={onCerrar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
       </div>
     </div>
+  );
+}
+
+// ───────────────────────── Registro de asistencia ─────────────────────────
+// Mismo flujo que Cortes/Inventarios: listado por fecha → "Nueva captura"
+// (para cada persona: primero el estatus y, si asistió o llegó tarde, la hora
+// de entrada y de salida) → revisión → Finalizar. Una vez finalizado solo se
+// puede ver y exportar; si algo quedó mal lo corrige el administrador. Los
+// nombres los maneja el administrador (Cortes › Configuración), no la sucursal.
+
+function EtiquetaEstatus({ estatus }) {
+  const c = ESTATUS_COLOR[estatus];
+  if (!c) return <span style={{ color: T.muted }}>—</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: c.color, background: c.fondo, whiteSpace: "nowrap" }}>{estatus}</span>;
+}
+
+const thAs = { padding: "7px 12px", textAlign: "left" };
+const tdAs = { padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` };
+
+function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
+  const [verFecha, setVerFecha] = useState(null);
+  const ordenadas = [...items].sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const hayEmpleados = empleados.length > 0;
+
+  const columnasExport = [
+    { titulo: "Fecha", valor: (f) => f.fecha },
+    { titulo: "Empleado", valor: (f) => f.empleado },
+    { titulo: "Puesto", valor: (f) => f.puesto || "" },
+    { titulo: "Entrada", valor: (f) => f.entrada || "" },
+    { titulo: "Salida", valor: (f) => f.salida || "" },
+    { titulo: "Horas", valor: (f) => fmtHoras(horasDeRegistro(f)) },
+  ];
+  const filasExport = [...items].sort((a, b) => a.fecha.localeCompare(b.fecha)).flatMap((d) => d.registros.map((r) => ({ ...r, fecha: d.fecha })));
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
+        <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", margin: 0, color: T.ink }}>Registro asistencia</h1>
+        {!verFecha && (
+          <button
+            onClick={onNuevo}
+            disabled={!hayEmpleados}
+            style={{ border: "none", color: "#fff", fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: hayEmpleados ? "pointer" : "default", opacity: hayEmpleados ? 1 : 0.5, fontFamily: "inherit", background: T.brand, display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Plus size={15} color="#fff" /> Nueva captura
+          </button>
+        )}
+      </div>
+      {!verFecha && <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 18 }}>Asistencia diaria del personal de la sucursal</div>}
+
+      {verFecha ? (
+        <AsistenciaDetalle sucursal={sucursal} doc={items.find((d) => d.fecha === verFecha)} onCerrar={() => setVerFecha(null)} />
+      ) : (
+        <>
+          <PrintHeader titulo="Registro asistencia" />
+          {!hayEmpleados && (
+            <div style={{ background: T.card, border: `1px dashed ${T.line}`, borderRadius: 12, padding: 16, fontSize: 13, color: T.muted, textAlign: "center", marginBottom: 14 }}>
+              Todavía no hay personal dado de alta para esta sucursal — pídele a tu administrador que lo agregue.
+            </div>
+          )}
+          <div className="noprint" style={{ display: "flex", justifyContent: "flex-end", marginBottom: 18 }}>
+            <ExportMenu titulo="Registro asistencia" columnas={columnasExport} filas={filasExport} />
+          </div>
+          {ordenadas.length === 0 ? (
+            <div style={{ background: T.card, border: `1px dashed ${T.line}`, borderRadius: 12, padding: 20, fontSize: 13, color: T.muted, textAlign: "center" }}>Aún no hay capturas registradas.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {ordenadas.map((d) => (
+                <div key={d.id} style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                    <div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <strong style={{ color: T.ink }}>{d.fecha}</strong>
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.ok, background: T.okSoft }}>Capturado</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{d.registros.length} persona{d.registros.length === 1 ? "" : "s"} · {fmtHoras(d.registros.reduce((s, r) => s + horasDeRegistro(r), 0))} horas</div>
+                    </div>
+                    <button onClick={() => setVerFecha(d.fecha)} style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TablaAsistencia({ registros }) {
+  const total = registros.reduce((s, r) => s + horasDeRegistro(r), 0);
+  return (
+    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <thead>
+        <tr style={{ background: T.paper }}>
+          <th style={thAs}>Empleado</th>
+          <th style={thAs}>Puesto</th>
+          <th style={{ ...thAs, textAlign: "center" }}>Entrada</th>
+          <th style={{ ...thAs, textAlign: "center" }}>Salida</th>
+          <th style={{ ...thAs, textAlign: "right" }}>Horas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {registros.map((r) => (
+          <tr key={r.empleado}>
+            <td style={tdAs}>{r.empleado}</td>
+            <td style={{ ...tdAs, color: T.muted }}>{r.puesto || "—"}</td>
+            <td style={{ ...tdAs, textAlign: "center" }}>{r.entrada || <span style={{ color: T.muted }}>Sin hora</span>}</td>
+            <td style={{ ...tdAs, textAlign: "center" }}>{r.salida || "—"}</td>
+            <td style={{ ...tdAs, textAlign: "right", fontWeight: 600 }}>{fmtHoras(horasDeRegistro(r))}</td>
+          </tr>
+        ))}
+        <tr>
+          <td colSpan={4} style={{ ...tdAs, fontWeight: 700, background: T.paper }}>Total de horas</td>
+          <td style={{ ...tdAs, textAlign: "right", fontWeight: 700, background: T.paper }}>{fmtHoras(total)}</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
+function AsistenciaDetalle({ sucursal, doc, onCerrar }) {
+  if (!doc) return null;
+  const columnasExport = [
+    { titulo: "Empleado", valor: (f) => f.empleado },
+    { titulo: "Puesto", valor: (f) => f.puesto || "" },
+    { titulo: "Entrada", valor: (f) => f.entrada || "" },
+    { titulo: "Salida", valor: (f) => f.salida || "" },
+    { titulo: "Horas", valor: (f) => fmtHoras(horasDeRegistro(f)) },
+  ];
+  return (
+    <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px", display: "grid", gap: 16 }}>
+      <PrintHeader titulo={`Asistencia ${doc.fecha}`} />
+      <div className="noprint" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>Detalle de la asistencia</div>
+        <ExportMenu titulo={`Asistencia ${doc.fecha}`} columnas={columnasExport} filas={doc.registros} />
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, fontSize: 13 }}>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong style={{ color: T.ink }}>{doc.fecha}</strong></div>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Sucursal</div><strong style={{ color: T.ink }}>{sucursal}</strong></div>
+        {doc.capturadoPor && <div><div style={{ color: T.muted, fontSize: 11 }}>Capturado por</div><strong style={{ color: T.ink }}>{doc.capturadoPor}</strong></div>}
+      </div>
+      <TablaAsistencia registros={doc.registros} />
+      <div className="noprint" style={{ display: "flex", justifyContent: "flex-end" }}>
+        <button onClick={onCerrar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Cerrar</button>
+      </div>
+    </div>
+  );
+}
+
+function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
+  const [paso, setPaso] = useState("captura"); // captura | resumen
+  const [fecha, setFecha] = useState(fechaLocalISO());
+  const [valores, setValores] = useState({}); // { nombre: { entrada, salida } }
+  const ordenados = [...empleados].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
+
+  const yaCapturada = items.some((d) => d.fecha === fecha);
+  const poner = (nombre, cambios) => setValores((prev) => ({ ...prev, [nombre]: { entrada: "", salida: "", ...(prev[nombre] || {}), ...cambios } }));
+
+  // La sucursal solo captura hora de entrada y salida. Quien no lleve horas queda
+  // "sin hora" y administración le pone Falta, Descanso o Vacaciones. Si se
+  // captura una hora, debe llevar las dos.
+  const faltaDe = (e) => {
+    const v = valores[e.nombre] || {};
+    return (v.entrada && !v.salida) || (!v.entrada && v.salida) ? "horas" : null;
+  };
+  const pendientes = ordenados.filter((e) => faltaDe(e));
+  const conHora = ordenados.filter((e) => { const v = valores[e.nombre] || {}; return v.entrada && v.salida; }).length;
+  const listo = fecha && !yaCapturada && ordenados.length > 0 && pendientes.length === 0 && conHora > 0;
+
+  const construirRegistros = () => ordenados.map((e) => {
+    const v = valores[e.nombre] || {};
+    const conHoras = !!(v.entrada && v.salida);
+    return { empleado: e.nombre, puesto: e.puesto || "", estatus: conHoras ? "Asistió" : "Pendiente", entrada: conHoras ? v.entrada : "", salida: conHoras ? v.salida : "" };
+  });
+
+  const finalizar = () => {
+    if (!listo) return;
+    if (!window.confirm(`¿Guardar la asistencia del ${fecha}? Dale una segunda revisada antes de confirmar — después solo tu administrador puede corregirla.`)) return;
+    setItems((prev) => [...prev, { id: idAsistencia(sucursal, fecha), fecha, registros: construirRegistros() }]);
+    onVolver();
+  };
+
+  if (paso === "resumen") {
+    const registros = construirRegistros();
+    return (
+      <>
+        <div style={{ marginBottom: 22 }}>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 2 }}>Registro asistencia</div>
+          <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 26, margin: 0, color: T.ink }}>Revisión de la captura</h1>
+        </div>
+        <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: 22, display: "grid", gap: 16 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: T.ink }}>Dale una segunda revisada antes de guardar</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, fontSize: 13 }}>
+            <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong style={{ color: T.ink }}>{fecha}</strong></div>
+            <div><div style={{ color: T.muted, fontSize: 11 }}>Sucursal</div><strong style={{ color: T.ink }}>{sucursal}</strong></div>
+          </div>
+          <TablaAsistencia registros={registros} />
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={() => setPaso("captura")} style={{ border: `1px solid ${T.line}`, background: "#fff", color: T.ink, fontSize: 12.5, fontWeight: 600, padding: "9px 18px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>‹ Atrás</button>
+            <button onClick={finalizar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12.5, fontWeight: 600, padding: "9px 18px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Finalizar</button>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <button onClick={onVolver} style={{ background: "none", border: "none", color: T.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, marginBottom: 14 }}>
+        <ChevronLeft size={14} /> Registro asistencia
+      </button>
+      <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 2 }}>Registro asistencia</div>
+          <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 700, fontSize: 26, margin: 0, color: T.ink }}>Nueva captura</h1>
+        </div>
+        <div>
+          <label style={etiqueta}>Fecha</label>
+          <input type="date" value={fecha} max={fechaLocalISO()} onChange={(e) => setFecha(e.target.value)} style={{ ...campo, width: 170 }} />
+        </div>
+      </div>
+
+      {yaCapturada && (
+        <div style={{ background: "#FBE7E5", border: `1px solid ${T.bad}`, color: T.bad, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, marginBottom: 16 }}>
+          Ya hay una asistencia capturada para el {fecha}. Si hay que corregirla, pídeselo a tu administrador.
+        </div>
+      )}
+
+      <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, display: "grid", gap: 8 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.5fr", gap: 8, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 10px" }}>
+          <div>Empleado</div><div>Hora de entrada</div><div>Hora de salida</div><div style={{ textAlign: "right" }}>Horas</div>
+        </div>
+        {ordenados.map((e) => {
+          const v = valores[e.nombre] || {};
+          const conHoras = !!(v.entrada && v.salida);
+          return (
+            <div key={e.nombre} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.5fr", gap: 8, alignItems: "center", background: T.paper, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 10px" }}>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{e.nombre}</div>
+                {e.puesto && <div style={{ fontSize: 11, color: T.muted }}>{e.puesto}</div>}
+              </div>
+              <HoraInput value={v.entrada || ""} onChange={(h) => poner(e.nombre, { entrada: h })} style={{ ...campo, background: "#fff", padding: "9px 10px" }} />
+              <HoraInput value={v.salida || ""} onChange={(h) => poner(e.nombre, { salida: h })} style={{ ...campo, background: "#fff", padding: "9px 10px" }} />
+              <div style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: T.ink }}>{conHoras ? fmtHoras(horasEntre(v.entrada, v.salida)) : "—"}</div>
+            </div>
+          );
+        })}
+        {ordenados.length === 0 && <div style={{ fontSize: 12.5, color: T.muted }}>No hay personal dado de alta — pídele a tu administrador que lo agregue.</div>}
+      </div>
+      {pendientes.length > 0 && ordenados.length > 0 && (
+        <div style={{ fontSize: 11.5, color: T.bad, marginTop: 10 }}>Falta la hora de entrada o de salida de: {pendientes.map((e) => e.nombre).join(", ")}.</div>
+      )}
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 10 }}>Captura la hora real de entrada y salida de quien trabajó. Si alguien no vino, déjalo sin hora; administración le asigna falta, descanso o vacaciones.</div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 24 }}>
+        <button onClick={onVolver} style={{ border: `1px solid ${T.line}`, background: "#fff", color: T.ink, fontSize: 13.5, fontWeight: 600, padding: "11px 28px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+        <button onClick={() => listo && setPaso("resumen")} disabled={!listo} style={{ ...boton(T.brand, "#fff"), opacity: listo ? 1 : 0.5, cursor: listo ? "pointer" : "default", padding: "11px 28px" }}>Siguiente</button>
+      </div>
+    </>
   );
 }

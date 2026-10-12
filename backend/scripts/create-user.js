@@ -9,6 +9,10 @@
 // Uso — usuario auditor (en Gestión solo entra a Cortes, todos los paneles
 // menos Auditoría; sin Configuración):
 //   npm run create-user -- usuario contraseña --rol=auditor
+// Uso — usuario de Recursos Humanos (Capital Humano, Auditorías Remotas,
+// Mantenimiento, Nómina sucursales e Inventarios solo lectura; puede mandar
+// recordatorios a sucursales):
+//   npm run create-user -- usuario contraseña --rol=rrhh
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 dotenv.config();
@@ -20,8 +24,8 @@ async function main() {
   const rolFlag = argv.find((a) => a.startsWith("--rol="));
   const rolElegido = rolFlag ? rolFlag.slice("--rol=".length) : null;
   const [username, password, sucursal] = argv.filter((a) => !a.startsWith("--"));
-  if (rolElegido && !["inventarios", "auditor"].includes(rolElegido)) {
-    console.log('Rol no reconocido. Los roles son --rol=inventarios y --rol=auditor (o déjalo vacío para admin / usa una sucursal).');
+  if (rolElegido && !["inventarios", "auditor", "rrhh"].includes(rolElegido)) {
+    console.log('Rol no reconocido. Los roles son --rol=inventarios, --rol=auditor y --rol=rrhh (o déjalo vacío para admin / usa una sucursal).');
     process.exit(1);
   }
   if (!username || !password) {
@@ -48,6 +52,8 @@ async function main() {
   console.log(
     role === "inventarios"
       ? `✅ Usuario "${username}" creado con rol inventarios — en Gestión solo entra a Inventarios y a Cortes › Auditoría.`
+      : role === "rrhh"
+      ? `✅ Usuario "${username}" creado con rol rrhh — Capital Humano, Auditorías Remotas, Mantenimiento, Nómina sucursales e Inventarios (solo lectura).`
       : role === "auditor"
       ? `✅ Usuario "${username}" creado con rol auditor — en Gestión solo entra a Cortes (sin Auditoría ni Configuración).`
       : sucursal

@@ -27,7 +27,10 @@ export function nombreParaSaludo() {
     const suc = getSucursal();
     if (suc) return suc;
   }
-  const username = getUsername();
+  return nombreDeUsername(getUsername());
+}
+// Nombre legible a partir de un usuario ("hector_inventarios" → "Hector Inventarios").
+export function nombreDeUsername(username) {
   if (!username) return "";
   const partes = username.split(/[._-]+/).filter(Boolean);
   const limpio = partes.filter((p) => !PALABRAS_ROL.has(p.toLowerCase()));

@@ -53,9 +53,9 @@ export async function requireAuth(req, res, next) {
 }
 
 // Para las consultas de Odoo: las puede usar un "admin" y también un usuario con
-// rol "inventarios" (Auditoría e Inventarios las necesitan). Las sucursales, no.
+// rol "inventarios" o "rrhh" (solo lectura en Inventarios) (Auditoría e Inventarios las necesitan). Las sucursales, no.
 export function requireAdminOInventarios(req, res, next) {
-  if (req.user?.role !== "admin" && req.user?.role !== "inventarios") return res.status(403).json({ error: "No tienes permiso para esto" });
+  if (req.user?.role !== "admin" && req.user?.role !== "inventarios" && req.user?.role !== "rrhh") return res.status(403).json({ error: "No tienes permiso para esto" });
   next();
 }
 
