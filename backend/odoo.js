@@ -17,7 +17,13 @@ async function odooRpc(service, method, args) {
   if (!url) throw new Error("Falta ODOO_URL en el .env");
   const res = await fetch(`${url.replace(/\/$/, "")}/jsonrpc`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // Algunos servidores/firewalls (por ejemplo Cloudflare) bloquean con 403 las
+    // peticiones sin "User-Agent" de navegador; por eso se manda uno normal.
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+    },
     body: JSON.stringify({
       jsonrpc: "2.0",
       method: "call",
