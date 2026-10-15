@@ -44,9 +44,31 @@
      fuera de ese contenedor, no heredan el "containing block" que crea
      "filter" en CSS (si no, con la página con scroll se quedarían fijos al
      contenedor y no a la pantalla). */
-  html.fy-dark { background: #0b0c0d; }
-  html.fy-dark #fy-app-shell { filter: invert(1) hue-rotate(180deg); }
-  html.fy-dark #fy-app-shell img { filter: invert(1) hue-rotate(180deg); }
+  /* Estilo oscuro (parecido al de Dark Reader): grises casi negros (#181a1b) y
+     texto claro, en vez del negro puro. Lo logrado así:
+     • Se invierte toda la app y se baja un poco el contraste, para que el
+       blanco quede en gris muy oscuro y el negro en gris claro (no en blanco puro).
+     • Lo que ya era oscuro de origen (barra lateral, riel de la izquierda, botón
+       de Cuenta, botones negros) se vuelve a invertir para que siga oscuro.
+     • La foto de fondo se pinta en <html> (afuera del filtro) para que se vea con
+       sus colores reales, con un tinte oscuro encima que respeta la intensidad. */
+  html.fy-dark {
+    background-color: #101112;
+    background-image: linear-gradient(rgba(16, 17, 18, var(--fy-bg-tint)), rgba(16, 17, 18, var(--fy-bg-tint))), var(--fy-bg-image);
+    background-size: cover, var(--fy-bg-size);
+    background-position: center, center;
+    background-attachment: fixed, fixed;
+    background-repeat: no-repeat, no-repeat;
+  }
+  html.fy-dark #fy-app-shell { background: transparent; filter: invert(1) hue-rotate(180deg) contrast(0.85); }
+  html.fy-dark #fy-app-shell img { filter: invert(1) hue-rotate(180deg) contrast(1.18); }
+  html.fy-dark #fy-app-shell [style*="background: rgb(22, 22, 27)"],
+  html.fy-dark #fy-app-shell [style*="background-color: rgb(22, 22, 27)"],
+  html.fy-dark #fy-app-shell [style*="background: rgb(13, 13, 18)"],
+  html.fy-dark #fy-app-shell [style*="background-color: rgb(13, 13, 18)"] { filter: invert(1) hue-rotate(180deg) contrast(1.15); }
+  html.fy-dark #fy-app-shell [style*="background: rgb(22, 22, 27)"] img,
+  html.fy-dark #fy-app-shell [style*="background: rgb(13, 13, 18)"] img { filter: none; }
+  html.fy-dark #fy-app-shell [style*="background: rgb(22, 22, 27)"] [style*="background: rgb(22, 22, 27)"] { filter: none; }
 
   /* Densidad compacta: encoge un poco toda la app para que quepa más en
      pantalla (funciona en Chrome/Edge, que es lo que se usa aquí). */

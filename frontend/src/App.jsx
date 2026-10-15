@@ -5263,7 +5263,7 @@ function AIAuditoriaCaptura({ sucursales, cuadres, inicial, terminacionesAI, onC
       setVentasSucursal(body);
     } catch (e) {
       setOdooFalló(true);
-      setError("No se pudo traer los datos de Odoo automáticamente — " + (e?.message || "sube el archivo a mano por ahora.") + " Puedes subir el archivo manualmente aquí abajo.");
+      setError("No se pudo traer los datos de Odoo automáticamente — " + (e?.message || "intenta de nuevo en un momento."));
     }
     setCargando(null);
   };
@@ -5410,12 +5410,6 @@ function AIAuditoriaCaptura({ sucursales, cuadres, inicial, terminacionesAI, onC
                     {cargando === "sucursal-odoo" ? "Conectando con Odoo…" : "⟳ Traer de Odoo"}
                   </button>
                 </div>
-                {odooFalló && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 6 }}>Como alternativa, sube el export tal cual lo descarga el sistema — se limpia solo.</div>
-                    <input type="file" accept=".xlsx,.xls" onChange={(e) => e.target.files[0] && subirVentasSucursal(e.target.files[0])} />
-                  </div>
-                )}
                 {cargando === "sucursal" && <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Leyendo…</div>}
                 {diasSuc > 0 && <div style={{ fontSize: 12.5, color: T.ok, marginTop: 6 }}>{diasSuc} día{diasSuc === 1 ? "" : "s"} cargados dentro del rango · {aiMoney(totalSuc)}</div>}
               </div>
