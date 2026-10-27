@@ -85,6 +85,16 @@ export default function PersonalizarCuenta({ onCerrar }) {
         </div>
 
         <div style={{ padding: 22, display: "grid", gap: 22 }}>
+          {/* Estilo */}
+          <div>
+            <div style={seccionTitulo}><LayoutGrid size={14} /> Estilo</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {[{ id: "limpio", label: "Limpio (nuevo)" }, { id: "clasico", label: "Clásico" }].map(({ id, label }) => (
+                <button key={id} onClick={() => actualizar({ estilo: id })} style={opcionBtn((prefs.estilo || "limpio") === id)}>{label}</button>
+              ))}
+            </div>
+          </div>
+
           {/* Tema */}
           <div>
             <div style={seccionTitulo}><Sun size={14} /> Tema</div>

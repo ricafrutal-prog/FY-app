@@ -4,6 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Plataforma Operativa — Frutal Yogurt</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <style>
   /* El navegador le pone 8px de margen en blanco a "body" por default — sin
      esto se veía como un contorno blanco alrededor de toda la página. */
@@ -70,6 +73,67 @@
   html.fy-dark #fy-app-shell [style*="background: rgb(13, 13, 18)"] img { filter: none; }
   html.fy-dark #fy-app-shell [style*="background: rgb(22, 22, 27)"] [style*="background: rgb(22, 22, 27)"] { filter: none; }
 
+  /* ================= Estilo "Limpio" (html.fy-limpio) =================
+     Inspirado en un tablero moderno y limpio: Inter, fondo gris azulado muy claro,
+     barras laterales BLANCAS con la opción activa en una píldora oscura, tarjetas
+     blancas con borde suave y esquinas grandes, y muy poca sombra. Se prende y
+     se apaga desde Cuenta › Personalizar cuenta › Estilo (el "Clásico" es el de
+     antes). Va como capa de CSS encima de los estilos de la app, así que no
+     cambia nada en el código de las pantallas. */
+  html.fy-limpio #fy-app-shell { background-color: #F4F6F8; }
+
+  /* Barras laterales (Gestión, Tareas, Sucursales) y riel de modos */
+  html.fy-limpio #fy-app-shell aside,
+  html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] {
+    background: #FFFFFF !important; color: #16161B !important; border-right: 1px solid #E9ECEF; box-shadow: none !important;
+  }
+  /* El panel de opciones lleva un tono verde menta muy suave; el riel de modos se queda blanco. */
+  html.fy-limpio #fy-app-shell aside { background: #EAF5F1 !important; border-right-color: #D5E8E0; }
+  html.fy-limpio #fy-app-shell aside div { color: #9AA1A9 !important; }
+  html.fy-limpio #fy-app-shell aside button,
+  html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] button { color: #5B6370 !important; font-weight: 500 !important; border-radius: 11px !important; }
+  html.fy-limpio #fy-app-shell aside button *,
+  html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] button * { color: inherit !important; }
+  /* Pasar el mouse: un fondo verde translúcido muy suave, solo en las opciones que NO están activas. */
+  html.fy-limpio #fy-app-shell aside button:not([style*="background: rgb(15, 110, 102)"]):hover,
+  html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] button:not([style*="background: rgb(15, 110, 102)"]):hover { background: rgba(15, 110, 102, .10) !important; color: #16161B !important; }
+  html.fy-limpio #fy-app-shell aside .deptobtn:hover, html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] .deptobtn:hover { filter: none !important; }
+  html.fy-limpio #fy-app-shell aside button[style*="background: rgb(15, 110, 102)"] { background: #0F6E66 !important; color: #FFFFFF !important; font-weight: 600 !important; box-shadow: 0 3px 8px rgba(15, 110, 102, .25); }
+  /* Riel: la opción activa va en un recuadro menta con texto del color de la marca. */
+  html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] button[style*="background: rgb(15, 110, 102)"] { background: #DDF0EA !important; color: #0F6E66 !important; font-weight: 700 !important; box-shadow: none; }
+  html.fy-limpio #fy-app-shell aside img, html.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] img { filter: brightness(0.6) saturate(1.5); }
+  html.fy-dark.fy-limpio #fy-app-shell aside img, html.fy-dark.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] img { filter: none; }
+  html.fy-limpio #fy-app-shell img.fy-logo-rail, html.fy-dark.fy-limpio #fy-app-shell img.fy-logo-rail { filter: none !important; }
+  html.fy-limpio #fy-app-shell aside [data-fy-titulo] { color: #14181F !important; }
+  html.fy-boton-flotante #fy-app-shell header { padding-left: 62px !important; }
+  /* Título y botón « del panel lateral */
+  html.fy-limpio #fy-app-shell aside button[title="Ocultar barra lateral"] { background: #FFFFFF !important; border: 1px solid #D5E8E0 !important; }
+
+  /* Encabezado de cada pantalla */
+  html.fy-limpio #fy-app-shell header { background: #FFFFFF !important; border-bottom: 1px solid #EDEFF2 !important; }
+
+  /* Títulos */
+  html.fy-limpio #fy-app-shell h1 { font-weight: 600 !important; letter-spacing: -0.025em !important; font-size: 28px !important; color: #14181F; }
+
+  /* Tarjetas: blancas, borde suave, esquinas grandes y una sombra casi imperceptible */
+  html.fy-limpio #fy-app-shell [style*="border-radius: 12px"][style*="background: rgb(255, 255, 255)"],
+  html.fy-limpio #fy-app-shell [style*="border-radius: 14px"][style*="background: rgb(255, 255, 255)"] {
+    border-radius: 18px !important; border-color: #E9ECEF !important; box-shadow: 0 1px 2px rgba(16, 24, 40, .04), 0 2px 6px rgba(16, 24, 40, .03);
+  }
+  html.fy-limpio #fy-app-shell [style*="border: 1px dashed"] { border-radius: 16px !important; border-color: #DDE2E7 !important; }
+
+  /* Campos y botones */
+  html.fy-limpio #fy-app-shell .sel { border-radius: 11px !important; border-color: #E1E5EA !important; background-color: #FFFFFF; }
+  html.fy-limpio #fy-app-shell select { -webkit-appearance: none; appearance: none; padding-right: 40px !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2341414C' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: right 16px center !important; background-size: 14px !important; }
+  html.fy-limpio #fy-app-shell .sel:focus { border-color: #14181F !important; box-shadow: 0 0 0 3px rgba(20, 24, 31, .08); }
+  html.fy-limpio #fy-app-shell .actbtn { border-radius: 11px !important; padding-top: 8px !important; padding-bottom: 8px !important; }
+  html.fy-limpio #fy-app-shell table th { background: #F6F8FA !important; color: #6B7480 !important; font-weight: 600 !important; }
+  html.fy-limpio #fy-app-shell table td { border-bottom-color: #EEF1F4 !important; }
+
+  /* En oscuro, las barras laterales blancas se invierten solas; no hay que volver a invertirlas. */
+  html.fy-dark.fy-limpio #fy-app-shell aside,
+  html.fy-dark.fy-limpio #fy-app-shell div[style*="background: rgb(13, 13, 18)"] { filter: none !important; }
+
   /* Densidad compacta: encoge un poco toda la app para que quepa más en
      pantalla (funciona en Chrome/Edge, que es lo que se usa aquí). */
   html.fy-compacta #fy-app-shell { zoom: 0.9; }
@@ -83,9 +147,11 @@
   (function () {
     try {
       var raw = localStorage.getItem("fy_prefs");
-      if (!raw) return;
-      var p = JSON.parse(raw);
       var root = document.documentElement;
+      if (!raw) { root.classList.add("fy-limpio"); root.style.setProperty("--fy-font", "'Inter', system-ui, sans-serif"); return; }
+      var p = JSON.parse(raw);
+      var limpio = p.estilo !== "clasico";
+      if (limpio) root.classList.add("fy-limpio");
       if (p.tema === "oscuro") root.classList.add("fy-dark");
       if (p.densidad === "compacta") root.classList.add("fy-compacta");
       var FUENTES = {
@@ -95,7 +161,8 @@
         georgia: "Georgia, 'Times New Roman', serif",
         mono: "'JetBrains Mono', ui-monospace, 'Courier New', monospace",
       };
-      if (p.fuente && FUENTES[p.fuente]) root.style.setProperty("--fy-font", FUENTES[p.fuente]);
+      if (p.fuente && FUENTES[p.fuente]) root.style.setProperty("--fy-font", (limpio && p.fuente === "jakarta") ? FUENTES.inter : FUENTES[p.fuente]);
+      else if (limpio) root.style.setProperty("--fy-font", FUENTES.inter);
       if (p.fondoImagen) {
         var tinte = Math.max(0, Math.min(100, 100 - (Number(p.fondoIntensidad) || 0))) / 100;
         root.style.setProperty("--fy-bg-image", "url(" + p.fondoImagen + ")");

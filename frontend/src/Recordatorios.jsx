@@ -32,20 +32,22 @@ function tocarTimbre() {
     audioCtx = audioCtx || new AC();
     if (audioCtx.state === "suspended") audioCtx.resume();
     const t0 = audioCtx.currentTime;
-    // Volumen fuerte: ganancia máxima + una onda cuadrada (más sonora) mezclada con la senoidal.
+    // "Ding-dong" suave: dos notas graves y redondas (sol-mi), repetido dos veces.
     const maestro = audioCtx.createGain();
-    maestro.gain.value = 1;
+    maestro.gain.value = 0.7;
     maestro.connect(audioCtx.destination);
-    [[880, 0], [1175, 0.3], [880, 0.6], [1175, 0.9], [880, 1.2], [1175, 1.5]].forEach(([f, d]) => {
-      [["sine", 0.9], ["square", 0.25]].forEach(([tipo, vol]) => {
+    const G5 = 784, E5 = 659;
+    const notas = [[G5, 0], [E5, 0.28]];
+    notas.forEach(([f, d]) => {
+      [[1, 0.8], [2, 0.12]].forEach(([mult, vol]) => {
         const o = audioCtx.createOscillator();
         const g = audioCtx.createGain();
-        o.type = tipo; o.frequency.value = f;
+        o.type = "sine"; o.frequency.value = f * mult;
         g.gain.setValueAtTime(0.0001, t0 + d);
-        g.gain.exponentialRampToValueAtTime(vol, t0 + d + 0.015);
-        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.45);
+        g.gain.exponentialRampToValueAtTime(vol, t0 + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + d + 0.5);
         o.connect(g); g.connect(maestro);
-        o.start(t0 + d); o.stop(t0 + d + 0.5);
+        o.start(t0 + d); o.stop(t0 + d + 0.55);
       });
     });
   } catch { /* el navegador no dejó reproducir: se intenta en el siguiente aviso */ }

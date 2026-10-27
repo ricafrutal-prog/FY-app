@@ -1,10 +1,15 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
+import { createPortal } from "react-dom";
 import * as Icons from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList } from "./hooks/persistence";
 import { apiFetch, getUsername, getRole } from "./auth";
 import AccountMenu from "./AccountMenu.jsx";
+import ConfigCuentaContenido from "./ConfigCuenta.jsx";
 import HoraInput from "./HoraInput.jsx";
+import RangoFechas from "./RangoFechas.jsx";
+import { useSidebarOculta, PanelCabecera, BotonMostrarBarra } from "./SidebarToggle.jsx";
+import { RUTA_POR_DEFECTO, construirRuta, rutaNorm, rutaCoincide } from "./rutaCortes";
 import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
 
 const LOGO = "./assets/logo.png";
@@ -517,8 +522,11 @@ const DEPTOS = [
   { key: "atencion_cliente", nombre: "Atención al Cliente", iconName: "Headphones", metricas: [["Casos abiertos", "18"], ["Satisfacción", "4.5 / 5"]] },
   { key: "auditoria", nombre: "Auditoría Presencial", iconName: "ClipboardCheck", metricas: [["Auditorías del mes", "42"], ["Cumplimiento promedio", "87%"]] },
   { key: "auditoria_interna", nombre: "Cortes", iconName: "ShieldCheck" },
-  { key: "nomina_sucursales", nombre: "Nómina sucursales", iconName: "Wallet", activo: true },
+  { key: "nomina_sucursales", nombre: "Registro asistencia sucursales", iconName: "Wallet", activo: true },
+  { key: "control_interno", nombre: "Control interno", iconName: "ShieldAlert", activo: true, soloUsuarios: true },
 ];
+// "soloUsuarios": el departamento solo aparece para las cuentas de CONC_USUARIOS.
+const deptoVisible = (d) => !d.soloUsuarios || CONC_USUARIOS.has(getUsername());
 
 /* Roles con acceso limitado dentro de Gestión. Lo que no les toca se ve apagado y no
    responde al clic (sin candados ni avisos), y Cortes › Configuración no aparece.
@@ -656,6 +664,16 @@ export default function App({ onCerrarSesion }) {
   const restringidoInv = !!permisos;
   const [depto, setDepto] = useState(permisos ? permisos.inicial : "inicio");
   const [modo, setModo] = useState("gestion");
+  // "Horarios del personal" se abre desde Cuenta › Configuración de cuenta (solo RR. HH. y el dueño).
+  const [verHorarios, setVerHorarios] = useState(false);
+  // "Configuración de cuenta" (Cuenta › Configuración de cuenta): pantalla de dos columnas para todos.
+  const [verConfig, setVerConfig] = useState(false);
+  useEffect(() => { setVerConfig(false); setVerHorarios(false); }, [modo, depto]); // al cambiar de sección se sale de Configuración
+  useEffect(() => {
+    const abrir = () => { setVerHorarios(false); setVerConfig(true); };
+    window.addEventListener("fy-abrir-config", abrir);
+    return () => window.removeEventListener("fy-abrir-config", abrir);
+  }, []);
   // Un rol restringido no puede cambiar a un departamento o modo que no le toca,
   // aunque algún botón del programa lo intentara.
   const irADepto = (k) => { if (permisos && !permisos.deptos.has(k)) return; setDepto(k); };
@@ -805,7 +823,7 @@ export default function App({ onCerrarSesion }) {
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
-      {modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : (<>
+      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
@@ -817,7 +835,8 @@ export default function App({ onCerrarSesion }) {
       {depto === "remodelaciones" && <Remodelaciones onCerrarSesion={onCerrarSesion} />}
       {depto === "auditoria_interna" && <AuditoriaInterna onCerrarSesion={onCerrarSesion} />}
       {depto === "nomina_sucursales" && <NominaSucursales onCerrarSesion={onCerrarSesion} />}
-      {depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
+      {depto === "control_interno" && CONC_USUARIOS.has(getUsername()) && <ControlInterno onCerrarSesion={onCerrarSesion} />}
+      {depto !== "control_interno" && depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
       {depto === "mantenimiento" && (<>
 
       {/* barra superior */}
@@ -928,15 +947,39 @@ export default function App({ onCerrarSesion }) {
 
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
 function NavRail({ modo, setModo, soloGestion }) {
-  const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"]];
+  const [oculta, setOculta] = useSidebarOculta();
+  const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : [])];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
+      <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12, flexShrink: 0 }}>
+        <img className="fy-logo-rail" src="./assets/logo-rail.png" alt="Frutal Yogurt" style={{ height: 26, width: "auto", display: "block" }} />
+      </div>
+      {oculta && <BotonMostrarBarra onMostrar={() => setOculta(false)} />}
       {items.map(([k, label, icon]) => (
         <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
           <Ico name={icon} size={20} />
           <span style={{ fontSize: 9.5, fontWeight: 600 }}>{label}</span>
         </button>
       ))}
+    </div>
+  );
+}
+
+/* ---------------- PERSONAL (solo CONC_USUARIOS) ---------------- */
+function Personal({ onCerrarSesion }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Personal</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Panel principal</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <div style={sx.h1row}><h1 style={sx.h1}>Personal</h1></div>
+        <div style={sx.empty}>Este espacio está listo. Dime qué quieres que lleve.</div>
+      </main>
     </div>
   );
 }
@@ -1002,13 +1045,12 @@ function MascotaCelebra() {
 }
 
 function TareasSidebar({ vista, onPick, conRetraso, totalRepPend }) {
+  const [oculta, setOculta] = useSidebarOculta();
+  if (oculta) return null;
   const items = [["mias", "Mis tareas", "ListChecks", conRetraso], ["asignadas", "Tareas que asigné", "Send", 0], ["reportes", "Reportes por departamento", "FileText", totalRepPend]];
   return (
     <aside className="noprint" style={sx.sidebar}>
-      <div style={{ padding: "2px 8px 18px" }}>
-        <img src={LOGO} alt="Frutal Yogurt" style={{ height: 40, width: "auto" }} />
-        <div style={{ fontSize: 10, color: "rgba(255,255,255,.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 8 }}>Tareas y Reportes</div>
-      </div>
+      <PanelCabecera titulo="Tareas y Reportes" onOcultar={() => setOculta(true)} />
       <div style={{ display: "grid", gap: 3 }}>
         {items.map(([k, label, ic, n]) => {
           const active = vista === k;
@@ -1234,13 +1276,12 @@ function finFilas(cuadro, inv) {
 }
 
 function FinSidebar({ fsec, onPick, seg, setSeg }) {
+  const [oculta, setOculta] = useSidebarOculta();
+  if (oculta) return null;
   const segs = [["Todas", "Globe"], ["Propias", "Store"], ["Franquicias", "Building2"]];
   return (
     <aside className="noprint" style={sx.sidebar}>
-      <div style={{ padding: "2px 8px 18px" }}>
-        <img src={LOGO} alt="Frutal Yogurt" style={{ height: 40, width: "auto" }} />
-        <div style={{ fontSize: 10, color: "rgba(255,255,255,.5)", letterSpacing: "0.08em", textTransform: "uppercase", marginTop: 8 }}>Finanzas · Indicadores</div>
-      </div>
+      <PanelCabecera titulo="Finanzas" subtitulo="Indicadores" onOcultar={() => setOculta(true)} />
       <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "rgba(255,255,255,.4)", padding: "0 6px 8px" }}>Segmento activo</div>
         <div style={{ display: "grid", gap: 3 }}>
@@ -2112,13 +2153,13 @@ function FinNoAplica({ que }) {
 
 /* ---------------- BARRA LATERAL DE DEPARTAMENTOS ---------------- */
 function Sidebar({ depto, onPick, permitidos }) {
+  const [oculta, setOculta] = useSidebarOculta();
+  if (oculta) return null;
   return (
     <aside className="noprint" style={sx.sidebar}>
-      <div style={{ padding: "2px 8px 20px" }}>
-        <img src={LOGO} alt="Frutal Yogurt" style={{ height: 40, width: "auto" }} />
-      </div>
+      <PanelCabecera titulo="Gestión" onOcultar={() => setOculta(true)} />
       <div style={{ display: "grid", gap: 3 }}>
-        {DEPTOS.map((d) => {
+        {DEPTOS.filter(deptoVisible).map((d) => {
           const active = depto === d.key;
           const bg = active ? T.brand : d.home ? "rgba(255,255,255,.07)" : "transparent";
           const col = active ? "#fff" : d.home ? "#fff" : "rgba(255,255,255,.62)";
@@ -2127,7 +2168,6 @@ function Sidebar({ depto, onPick, permitidos }) {
             <button key={d.key} onClick={() => onPick(d.key)} tabIndex={apagado ? -1 : 0} className="deptobtn" style={{ ...sx.deptoItem, background: bg, color: col, fontWeight: active || d.home ? 700 : 500, ...(apagado ? ESTILO_APAGADO : {}) }}>
               <span style={{ width: 22, display: "flex", justifyContent: "center" }}><Ico name={d.iconName} size={17} /></span>
               <span style={{ flex: 1, textAlign: "left", fontSize: 13 }}>{d.nombre}</span>
-              {!d.activo && !permitidos && <span style={sx.proxTag}>Próx.</span>}
             </button>
           );
         })}
@@ -2166,7 +2206,7 @@ function Inicio({ onEnter, mtto, onCerrarSesion }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12, marginTop: 24 }}>
-        {DEPTOS.filter((d) => d.key !== "inicio").map((d) => {
+        {DEPTOS.filter((d) => d.key !== "inicio" && deptoVisible(d)).map((d) => {
           const real = !!metricasReales[d.key];
           const metricas = real ? metricasReales[d.key] : (d.metricas || []);
           return (
@@ -2620,6 +2660,731 @@ function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agru
   );
 }
 
+/* ===== Conciliación de recepción de cortes =====
+   Compara la ruta semanal del chofer (qué sucursales entrega cada día de lunes a viernes)
+   contra lo que el auditor realmente recepcionó en "Recepción de Cortes".
+   Por cada sucursal que toca ese día:
+     • Conciliado:     el auditor la recepcionó el mismo día de la visita.
+     • Pendiente:      todavía no la recepciona (el día de la visita y hasta 2 días hábiles después).
+     • Fuera de tiempo: la recepcionó, pero otro día (después de su día).
+     • Faltante:       pasaron más de 2 días hábiles y sigue sin recepcionarla.
+   Solo la ven administrador_ricardo y jesus_segura. */
+const CONC_USUARIOS = new Set(["administrador_ricardo", "jesus_segura"]);
+const CONC_AUDITOR = "elias";        // se evalúa lo que recibió quien se llame así en "Quién recibe"
+const CONC_DIAS_HABILES = 2;         // a partir del tercer día hábil sin recepción pasa a Faltante
+const CONC_ESTADOS = {
+  "Conciliado": { color: "#1E7B43", fondo: "#C9EBD3" },
+  "Pendiente": { color: "#8A5A00", fondo: "#FBE08A" },
+  "Fuera de tiempo": { color: "#B45F06", fondo: "#FDE0C2" },
+  "Faltante": { color: "#B3261E", fondo: "#F8C9C9" },
+};
+const concNorm = rutaNorm;
+const concCoincide = rutaCoincide;
+const concDiaSem = (iso) => new Date(`${iso}T00:00:00`).getDay();
+const concProximaVisita = (e, iso, visitas) => { let d = aiSumaISO(iso, 1); for (let i = 0; i < 8; i++, d = aiSumaISO(d, 1)) if ((visitas[e.nombre] || []).includes(concDiaSem(d))) return d; return aiSumaISO(iso, 7); };
+const concDiasHabilesDespues = (iso, hoy) => { let n = 0; for (let d = aiSumaISO(iso, 1); d <= hoy; d = aiSumaISO(d, 1)) { const w = concDiaSem(d); if (w >= 1 && w <= 5) n++; } return n; };
+
+function concEstado(e, fecha, rec, hoy, visitas) {
+  const deSuc = rec.filter((r) => (r.cortes || []).some((c) => concCoincide(e, c.sucursal)));
+  const numCortes = (r) => r.cortes.filter((c) => concCoincide(e, c.sucursal)).length;
+  const enDia = deSuc.filter((r) => r.fecha === fecha);
+  if (enDia.length) return { estado: "Conciliado", recibidoEl: fecha, cortesRecibidos: enDia.reduce((s, r) => s + numCortes(r), 0) };
+  const prox = concProximaVisita(e, fecha, visitas);
+  const tarde = deSuc.filter((r) => r.fecha > fecha && r.fecha < prox).sort((a, b) => a.fecha.localeCompare(b.fecha));
+  if (tarde.length) return { estado: "Fuera de tiempo", recibidoEl: tarde[0].fecha, cortesRecibidos: tarde.filter((r) => r.fecha === tarde[0].fecha).reduce((s, r) => s + numCortes(r), 0) };
+  return { estado: concDiasHabilesDespues(fecha, hoy) > CONC_DIAS_HABILES ? "Faltante" : "Pendiente", recibidoEl: null, cortesRecibidos: 0 };
+}
+// Días de ruta entre desde y hasta (sin pasar de hoy ni antes de la primera recepción registrada).
+function concEvaluar(recepciones, hoy, desde, hasta, ruta) {
+  const rec = recepciones.filter((r) => r.fecha && concNorm(r.recibe).includes(CONC_AUDITOR));
+  const primera = rec.reduce((m, r) => (r.fecha < m ? r.fecha : m), hoy);
+  const ini = desde > primera ? desde : primera;
+  const fin = hasta < hoy ? hasta : hoy;
+  const dias = [];
+  for (let d = ini; d <= fin; d = aiSumaISO(d, 1)) {
+    const delDia = ruta.porDia[concDiaSem(d)];
+    if (!delDia) continue;
+    dias.push({ fecha: d, filas: delDia.map((e) => ({ e, ...concEstado(e, d, rec, hoy, ruta.visitas) })) });
+  }
+  return { dias: dias.reverse(), primera };
+}
+const concChip = (estado) => { const c = CONC_ESTADOS[estado]; return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, color: c.color, background: c.fondo, whiteSpace: "nowrap" }}>{estado}</span>; };
+const concContar = (filas) => { const o = { "Conciliado": 0, "Pendiente": 0, "Fuera de tiempo": 0, "Faltante": 0 }; filas.forEach((f) => { o[f.estado]++; }); return o; };
+
+/* ---- Incidencias de Conciliación (las captura el administrador en Control interno) ----
+   Una por sucursal y día de ruta que NO quedó "Conciliado". Estados: Pendiente / En investigación / Resuelto. */
+const INC_ESTADOS = ["Pendiente", "En investigación", "Resuelto"];
+const incId = (fecha, suc) => `${fecha}|${suc}`;
+const incColor = { "Pendiente": "#B07A12", "En investigación": "#2B6CB0", "Resuelto": "#1F8A4C" };
+
+function ConcIncidenciaModal({ filas, incidencias, onGuardar, onCerrar }) {
+  const oscuro = document.documentElement.classList.contains("fy-dark");
+  const c = oscuro ? { fondo: "#17171b", texto: "#F2F2F4", borde: "#34343b", caja: "#0e0e11", suave: "#9A9AA5" } : { fondo: "#fff", texto: T.ink, borde: T.line, caja: "#fff", suave: T.muted };
+  const [vals, setVals] = useState(() => {
+    const o = {};
+    filas.forEach((f) => { const i = incidencias.find((x) => x.id === incId(f.fecha, f.sucursal)); o[incId(f.fecha, f.sucursal)] = { causa: i?.causa || "", accion: i?.accion || "", estado: i?.estado || "Pendiente" }; });
+    return o;
+  });
+  const set = (id, campo, v) => setVals((p) => ({ ...p, [id]: { ...p[id], [campo]: v } }));
+  const guardar = () => {
+    const items = filas.map((f) => {
+      const id = incId(f.fecha, f.sucursal);
+      const v = vals[id];
+      const previa = incidencias.find((x) => x.id === id);
+      if (!previa && !v.causa.trim() && !v.accion.trim() && v.estado === "Pendiente") return null;
+      return { id, fecha: f.fecha, sucursal: f.sucursal, estatusVisita: f.estado, causa: v.causa.trim(), accion: v.accion.trim(), estado: v.estado, actualizadoPor: getUsername(), actualizadoEn: new Date().toISOString() };
+    }).filter(Boolean);
+    if (items.length) onGuardar(items);
+    onCerrar();
+  };
+  const area = { width: "100%", boxSizing: "border-box", minHeight: 70, padding: "10px 12px", borderRadius: 12, border: `1px solid ${c.borde}`, background: c.caja, color: c.texto, fontFamily: "inherit", fontSize: 13.5, resize: "vertical", outline: "none" };
+  return createPortal(
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: c.fondo, color: c.texto, borderRadius: 16, width: 560, maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto", padding: 22, boxShadow: "0 20px 60px rgba(0,0,0,.4)", border: `1px solid ${c.borde}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Incidencia de conciliación</div>
+          <button onClick={onCerrar} style={{ border: "none", background: "none", cursor: "pointer", color: c.suave, fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+        {filas.map((f, idx) => {
+          const id = incId(f.fecha, f.sucursal), v = vals[id];
+          return (
+            <div key={id} style={{ paddingTop: idx ? 16 : 0, marginTop: idx ? 16 : 0, borderTop: idx ? `1px solid ${c.borde}` : "none" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+                <strong>{f.sucursal}</strong><span style={{ fontSize: 12, color: c.suave }}>{fechaDDMMAAAA(f.fecha)}</span>{concChip(f.estado)}
+              </div>
+              <div style={{ fontSize: 12, color: c.suave, marginBottom: 4 }}>Causa identificada</div>
+              <textarea value={v.causa} onChange={(e) => set(id, "causa", e.target.value)} style={area} placeholder="Ej. El chofer no entregó uno de los cortes recogidos." />
+              <div style={{ fontSize: 12, color: c.suave, margin: "10px 0 4px" }}>Acción correctiva</div>
+              <textarea value={v.accion} onChange={(e) => set(id, "accion", e.target.value)} style={area} placeholder="Ej. Solicitar aclaración al chofer y verificar el corte faltante." />
+              <div style={{ fontSize: 12, color: c.suave, margin: "12px 0 6px" }}>Estado de la incidencia</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {INC_ESTADOS.map((e) => (
+                  <label key={e} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14 }}>
+                    <input type="radio" name={`inc-${id}`} checked={v.estado === e} onChange={() => set(id, "estado", e)} style={{ width: 18, height: 18, accentColor: "#0F6E66" }} /> {e}
+                  </label>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button onClick={onCerrar} style={{ border: `1px solid ${c.borde}`, background: "transparent", color: c.texto, fontSize: 13, fontWeight: 600, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+          <button onClick={guardar} style={{ border: "none", background: "#0F6E66", color: "#fff", fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Guardar</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function AIConciliacion({ recepciones, sucursales, onSalir, incidencias = [], onGuardarIncidencias }) {
+  const hoy = fechaLocalISO();
+  const [incModal, setIncModal] = useState(null); // { filas: [{fecha, sucursal, estado}] }
+  const incDe = (fecha, suc) => incidencias.find((x) => x.id === incId(fecha, suc));
+  const [rutaLista] = usePersistedList("ruta_cortes", RUTA_POR_DEFECTO);
+  const ruta = useMemo(() => construirRuta(rutaLista), [rutaLista]);
+  const [vista, setVista] = useState("dias"); // dias | resumen
+  const [mov, setMov] = useState("actual"); // todos | actual | anterior | rango
+  const [abierto, setAbierto] = useState(hoy);
+  const [desde, setDesde] = useState(`${hoy.slice(0, 7)}-01`);
+  const [hasta, setHasta] = useState(hoy);
+  const selSx = { ...sx.sel, width: "auto", minWidth: 150 };
+  const lbl = { fontSize: 11, color: T.muted, marginBottom: 3 };
+
+  // Periodo según "Movimientos".
+  const mesAnt = (() => { const y = Number(hoy.slice(0, 4)), m = Number(hoy.slice(5, 7)); const t = y * 12 + (m - 1) - 1; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; })();
+  let d1, d2;
+  if (mov === "todos" || mov === "sinconc") { d1 = "2000-01-01"; d2 = hoy; }
+  else if (mov === "actual") { d1 = `${hoy.slice(0, 7)}-01`; d2 = hoy; }
+  else if (mov === "anterior") { d1 = `${mesAnt}-01`; d2 = finDeMes(mesAnt); }
+  else { d1 = desde <= hasta ? desde : hasta; d2 = desde <= hasta ? hasta : desde; }
+  const evBase = useMemo(() => concEvaluar(recepciones, hoy, d1, d2, ruta), [recepciones, hoy, d1, d2, ruta]);
+  // "Sin conciliar": todo el historial pero solo Fuera de tiempo y Faltante (Pendiente aún puede pasar a Conciliado).
+  const evRes = useMemo(() => (mov === "sinconc" ? { ...evBase, dias: evBase.dias.map((d) => ({ ...d, filas: d.filas.filter((f) => f.estado === "Fuera de tiempo" || f.estado === "Faltante") })).filter((d) => d.filas.length) } : evBase), [evBase, mov]);
+  const evDias = evRes;
+  const selMov = (
+    <div className="noprint" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+      <div><div style={lbl}>Movimientos</div>
+        <select value={mov} onChange={(e) => setMov(e.target.value)} className="sel" style={{ ...selSx, minWidth: 190 }}>
+          <option value="todos">Todos</option><option value="sinconc">Sin conciliar</option><option value="actual">Mes actual</option><option value="anterior">Mes anterior</option><option value="rango">Rango de fechas</option>
+        </select>
+      </div>
+      {mov === "rango" && <div><div style={lbl}>Periodo</div><RangoFechas desde={desde} hasta={hasta} max={hoy} onChange={(a, b) => { setDesde(a); setHasta(b); }} /></div>}
+    </div>
+  );
+
+  // Nombres de la ruta que no se parecen a ninguna sucursal del catálogo ni a las de las recepciones.
+  const conocidos = useMemo(() => { const s = new Set(sucursales); recepciones.forEach((r) => (r.cortes || []).forEach((c) => s.add(c.sucursal))); return [...s]; }, [sucursales, recepciones]);
+  const sinEquivalente = useMemo(() => { return ruta.entradas.filter((e) => !conocidos.some((n) => concCoincide(e, n))).map((e) => e.nombre); }, [conocidos, ruta]);
+
+  const todasFilas = evRes.dias.flatMap((d) => d.filas);
+  const totales = concContar(todasFilas);
+  const porSuc = {};
+  todasFilas.forEach((f) => { const k = f.e.nombre; (porSuc[k] = porSuc[k] || { sucursal: k, "Conciliado": 0, "Pendiente": 0, "Fuera de tiempo": 0, "Faltante": 0, total: 0 }); porSuc[k][f.estado]++; porSuc[k].total++; });
+  const filasSuc = Object.values(porSuc).sort((a, b) => b["Faltante"] - a["Faltante"] || b["Fuera de tiempo"] - a["Fuera de tiempo"] || a.sucursal.localeCompare(b.sucursal, "es"));
+  const pct = (n) => (todasFilas.length ? `${Math.round((n / todasFilas.length) * 100)}%` : "—");
+
+  const colsResumen = [
+    { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Visitas", valor: (f) => f.total }, { titulo: "Conciliado", valor: (f) => f["Conciliado"] },
+    { titulo: "Pendiente", valor: (f) => f["Pendiente"] }, { titulo: "Fuera de tiempo", valor: (f) => f["Fuera de tiempo"] }, { titulo: "Faltante", valor: (f) => f["Faltante"] },
+  ];
+  const filasDetalle = evRes.dias.flatMap((d) => d.filas.map((f) => ({ fecha: d.fecha, ...f })));
+  const colsDetalle = [
+    { titulo: "Día de visita", valor: (f) => fechaDDMMAAAA(f.fecha) }, { titulo: "Sucursal", valor: (f) => f.e.nombre }, { titulo: "Cortes esperados", valor: (f) => f.e.cortes },
+    { titulo: "Estatus", valor: (f) => f.estado }, { titulo: "Recepcionado el", valor: (f) => (f.recibidoEl ? fechaDDMMAAAA(f.recibidoEl) : "") }, { titulo: "Cortes recibidos", valor: (f) => f.cortesRecibidos },
+  ];
+  const tabBtn = (k, t) => <button onClick={() => setVista(k)} style={{ border: `1px solid ${vista === k ? T.ink : T.line}`, background: vista === k ? T.ink : "#fff", color: vista === k ? "#fff" : T.ink, fontSize: 12.5, fontWeight: 600, padding: "7px 16px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>{t}</button>;
+
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Conciliación</h1><span style={{ fontSize: 12, color: T.muted }}>Conciliación a recepción de cortes</span></div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }} className="noprint">{tabBtn("dias", "Por día")}{tabBtn("resumen", "Resumen")}</div>
+      {sinEquivalente.length > 0 && <div style={{ fontSize: 11.5, color: "#7A5B00", background: "#FFF2CC", border: "1px solid #E8C45C", borderRadius: 8, padding: "8px 12px", marginBottom: 14 }}>No encuentro estas sucursales de la ruta en tu catálogo ni en las recepciones, por eso salen como Pendiente/Faltante: {sinEquivalente.join(", ")}. Si se llaman distinto en Cortes, avísame cómo.</div>}
+
+      {vista === "dias" ? (
+        <>
+          {selMov}
+          {evDias.dias.length === 0 ? <div style={sx.empty}>No hay días de ruta evaluables en ese periodo.</div> : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {evDias.dias.map((d) => {
+                const c = concContar(d.filas);
+                const abierta = abierto === d.fecha;
+                const sinConciliar = d.filas.filter((f) => f.estado !== "Conciliado").map((f) => ({ fecha: d.fecha, sucursal: f.e.nombre, estado: f.estado }));
+                const conIncidencia = sinConciliar.some((s) => incDe(s.fecha, s.sucursal));
+                return (
+                  <div key={d.fecha} style={sx.repCard}>
+                    <div onClick={() => setAbierto(abierta ? null : d.fecha)} style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "14px 28px", cursor: "pointer" }}>
+                      <div style={{ width: 210 }}>
+                        <div style={{ fontSize: 16, fontWeight: 700 }}>{NOMBRES_DIA[concDiaSem(d.fecha)]} {fechaDDMMAAAA(d.fecha)}</div>
+                        <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{d.filas.length} sucursales en ruta</div>
+                      </div>
+                      <div style={{ display: "flex", gap: 22, marginLeft: "auto" }}>
+                        {Object.keys(CONC_ESTADOS).map((k) => (
+                          <div key={k} style={{ textAlign: "center", minWidth: 78 }}>
+                            <div style={{ fontSize: 19, fontWeight: 700, color: c[k] > 0 ? CONC_ESTADOS[k].color : T.muted, opacity: c[k] > 0 ? 1 : 0.5 }}>{c[k]}</div>
+                            <div style={{ fontSize: 10.5, color: T.muted, marginTop: 1 }}>{k}</div>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", width: 62, justifyContent: "space-between", flexShrink: 0 }}>
+                        <Ico name={abierta ? "ChevronUp" : "ChevronDown"} size={16} color={T.muted} />
+                        {!(sinConciliar.length > 0 && onGuardarIncidencias) && <span style={{ width: 30 }} />}
+                        {sinConciliar.length > 0 && onGuardarIncidencias && (
+                          <button title="Capturar incidencia" onClick={(e) => { e.stopPropagation(); setIncModal({ filas: sinConciliar }); }} style={{ border: `1px solid ${conIncidencia ? T.brand : T.line}`, background: conIncidencia ? T.brandSoft : "transparent", borderRadius: 8, width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: conIncidencia ? T.brand : T.muted }}>
+                            <Ico name="MoreHorizontal" size={16} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {abierta && (
+                      <div style={{ overflowX: "auto", marginTop: 12 }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                          <thead><tr><th style={nomThL}>Sucursal</th><th style={nomTh}>Cortes esperados</th><th style={nomTh}>Estatus</th><th style={nomTh}>Recepcionado el</th><th style={nomTh}>Cortes recibidos</th><th style={nomTh}>Incidencia</th></tr></thead>
+                          <tbody>
+                            {d.filas.map((f) => {
+                              const inc = incDe(d.fecha, f.e.nombre);
+                              return (
+                              <tr key={f.e.nombre}>
+                                <td style={{ ...nomTdL, fontWeight: 600 }}>{f.e.nombre}</td><td style={nomTd}>{f.e.cortes}</td><td style={nomTd}>{concChip(f.estado)}</td>
+                                <td style={nomTd}>{f.recibidoEl ? fechaDDMMAAAA(f.recibidoEl) : "—"}</td><td style={nomTd}>{f.recibidoEl ? f.cortesRecibidos : "—"}</td>
+                                <td style={nomTd}>{inc ? <span style={{ fontSize: 11, fontWeight: 700, color: incColor[inc.estado] }}>{inc.estado}</span> : <span style={{ color: T.muted }}>—</span>}</td>
+                              </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {selMov}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
+            {Object.keys(CONC_ESTADOS).map((k) => (
+              <div key={k} style={{ ...sx.repCard, borderLeft: `4px solid ${CONC_ESTADOS[k].color}` }}>
+                <div style={{ fontSize: 11.5, color: T.muted }}>{k}</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: CONC_ESTADOS[k].color }}>{totales[k]}</div>
+                <div style={{ fontSize: 11.5, color: T.muted }}>{pct(totales[k])} de {todasFilas.length} visitas</div>
+              </div>
+            ))}
+          </div>
+          <NominaTarjeta titulo="Resumen por sucursal" tituloArchivo={`Conciliacion ${d1} ${d2}`} hechos={[["Periodo", d1 === d2 ? fechaDDMMAAAA(d1) : `${fechaDDMMAAAA(d1)} al ${fechaDDMMAAAA(d2)}`], ["Visitas evaluadas", String(todasFilas.length)]]} exportar={{ columnas: colsDetalle, filas: filasDetalle }} onCerrar={onSalir}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead><tr>{colsResumen.map((c, i) => <th key={c.titulo} style={i === 0 ? nomThL : nomTh}>{c.titulo}</th>)}</tr></thead>
+              <tbody>
+                {filasSuc.map((f) => (
+                  <tr key={f.sucursal}>
+                    <td style={{ ...nomTdL, fontWeight: 600 }}>{f.sucursal}</td><td style={nomTd}>{f.total}</td>
+                    <td style={{ ...nomTd, color: f["Conciliado"] ? CONC_ESTADOS["Conciliado"].color : undefined, fontWeight: 600 }}>{f["Conciliado"]}</td>
+                    <td style={{ ...nomTd, color: f["Pendiente"] ? CONC_ESTADOS["Pendiente"].color : undefined, fontWeight: 600 }}>{f["Pendiente"]}</td>
+                    <td style={{ ...nomTd, color: f["Fuera de tiempo"] ? CONC_ESTADOS["Fuera de tiempo"].color : undefined, fontWeight: 600 }}>{f["Fuera de tiempo"]}</td>
+                    <td style={{ ...nomTd, color: f["Faltante"] ? CONC_ESTADOS["Faltante"].color : undefined, fontWeight: 600 }}>{f["Faltante"]}</td>
+                  </tr>
+                ))}
+                {filasSuc.length === 0 && <tr><td colSpan={6} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay visitas de ruta evaluables en ese periodo.</td></tr>}
+              </tbody>
+            </table>
+          </NominaTarjeta>
+        </>
+      )}
+      {incModal && <ConcIncidenciaModal filas={incModal.filas} incidencias={incidencias} onGuardar={onGuardarIncidencias} onCerrar={() => setIncModal(null)} />}
+    </div>
+  );
+}
+
+/* Todas las visitas de ruta evaluadas (desde la primera recepción hasta hoy), una fila por sucursal y día. */
+const concVisitas = (ev) => ev.dias.flatMap((d) => d.filas.map((f) => ({ fecha: d.fecha, sucursal: f.e.nombre, estado: f.estado, recibidoEl: f.recibidoEl, cortesRecibidos: f.cortesRecibidos })));
+const concLunes = (iso) => aiSumaISO(iso, -((concDiaSem(iso) + 6) % 7));
+
+/* Panel "Pendientes": visitas sin conciliar cuya incidencia no está Resuelta (o aún no se captura). */
+function ConcPendientes({ visitas, incidencias, onGuardar, onSalir }) {
+  const [modal, setModal] = useState(null);
+  const [filtro, setFiltro] = useState("todos"); // todos | sin | investigacion | pendiente
+  const incDe = (v) => incidencias.find((x) => x.id === incId(v.fecha, v.sucursal));
+  const pend = visitas.filter((v) => v.estado !== "Conciliado" && incDe(v)?.estado !== "Resuelto").sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, "es"));
+  const estadoDe = (v) => incDe(v)?.estado || "Sin capturar";
+  const cuenta = { sin: pend.filter((v) => !incDe(v)).length, investigacion: pend.filter((v) => incDe(v)?.estado === "En investigación").length, pendiente: pend.filter((v) => incDe(v)?.estado === "Pendiente").length };
+  const lista = pend.filter((v) => filtro === "todos" || (filtro === "sin" && !incDe(v)) || (filtro === "investigacion" && incDe(v)?.estado === "En investigación") || (filtro === "pendiente" && incDe(v)?.estado === "Pendiente"));
+  const chipF = (k, t, n) => <button onClick={() => setFiltro(k)} style={{ border: `1px solid ${filtro === k ? T.ink : T.line}`, background: filtro === k ? T.ink : "#fff", color: filtro === k ? "#fff" : T.ink, fontSize: 12, fontWeight: 600, padding: "6px 13px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit" }}>{t} ({n})</button>;
+  const columnas = [
+    { titulo: "Día de visita", valor: (f) => fechaDDMMAAAA(f.fecha) }, { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Estatus", valor: (f) => f.estado },
+    { titulo: "Incidencia", valor: (f) => estadoDe(f) }, { titulo: "Causa", valor: (f) => incDe(f)?.causa || "" }, { titulo: "Acción correctiva", valor: (f) => incDe(f)?.accion || "" },
+  ];
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Control interno</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Pendientes</h1><span style={{ fontSize: 12, color: T.muted }}>incidencias de conciliación por atender</span></div>
+      <div className="noprint" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{chipF("todos", "Todos", pend.length)}{chipF("sin", "Sin capturar", cuenta.sin)}{chipF("pendiente", "Pendiente", cuenta.pendiente)}{chipF("investigacion", "En investigación", cuenta.investigacion)}</div>
+      <NominaTarjeta titulo="Visitas por atender" tituloArchivo="Pendientes de conciliacion" hechos={[["Por atender", String(pend.length)], ["Sin capturar", String(cuenta.sin)], ["En investigación", String(cuenta.investigacion)]]} exportar={{ columnas, filas: lista }} onCerrar={onSalir}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={nomThL}>Día de visita</th><th style={nomThL}>Sucursal</th><th style={nomTh}>Estatus</th><th style={nomTh}>Incidencia</th><th style={nomThL}>Causa</th><th style={nomThL}>Acción correctiva</th><th style={nomTh}></th></tr></thead>
+          <tbody>
+            {lista.map((v) => {
+              const inc = incDe(v);
+              return (
+                <tr key={incId(v.fecha, v.sucursal)}>
+                  <td style={nomTdL}>{fechaDDMMAAAA(v.fecha)}</td><td style={{ ...nomTdL, fontWeight: 600 }}>{v.sucursal}</td><td style={nomTd}>{concChip(v.estado)}</td>
+                  <td style={nomTd}>{inc ? <strong style={{ fontSize: 12, color: incColor[inc.estado] }}>{inc.estado}</strong> : <span style={{ color: T.bad, fontSize: 12, fontWeight: 600 }}>Sin capturar</span>}</td>
+                  <td style={{ ...nomTdL, maxWidth: 220, color: inc?.causa ? undefined : T.muted }}>{inc?.causa || "—"}</td>
+                  <td style={{ ...nomTdL, maxWidth: 220, color: inc?.accion ? undefined : T.muted }}>{inc?.accion || "—"}</td>
+                  <td style={nomTd}><button className="noprint" onClick={() => setModal({ filas: [v] })} style={{ fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>{inc ? "Editar" : "Capturar"}</button></td>
+                </tr>
+              );
+            })}
+            {lista.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No tienes pendientes. </td></tr>}
+          </tbody>
+        </table>
+      </NominaTarjeta>
+      {modal && <ConcIncidenciaModal filas={modal.filas} incidencias={incidencias} onGuardar={onGuardar} onCerrar={() => setModal(null)} />}
+    </div>
+  );
+}
+
+/* Cálculo de mediciones por semana (lunes a domingo).
+   Bases: Conciliado y Fuera de tiempo. Pendiente y Faltante son temporales: solo cuentan
+   cuando la semana ya cerró (domingo anterior a hoy) y siguen sin resolverse. */
+function concMediciones(visitas, hoy) {
+  const semanas = {};
+  visitas.forEach((v) => {
+    const lun = concLunes(v.fecha);
+    const s = (semanas[lun] = semanas[lun] || { lunes: lun, domingo: aiSumaISO(lun, 6), "Conciliado": 0, "Fuera de tiempo": 0, "Pendiente": 0, "Faltante": 0, enCurso: false });
+    s[v.estado]++;
+  });
+  const filas = Object.values(semanas).sort((a, b) => b.lunes.localeCompare(a.lunes)).map((s) => {
+    const enCurso = s.domingo >= hoy;
+    const pend = enCurso ? 0 : s["Pendiente"], falt = enCurso ? 0 : s["Faltante"];
+    const total = s["Conciliado"] + s["Fuera de tiempo"] + pend + falt;
+    return { ...s, enCurso, pendCuenta: pend, faltCuenta: falt, total, pct: total ? Math.round((s["Conciliado"] / total) * 100) : null };
+  });
+  return filas;
+}
+
+function ConcMediciones({ visitas, hoy, onSalir }) {
+  const semanas = useMemo(() => concMediciones(visitas, hoy), [visitas, hoy]);
+  const tot = semanas.reduce((o, s) => ({ c: o.c + s["Conciliado"], f: o.f + s["Fuera de tiempo"], p: o.p + s.pendCuenta, x: o.x + s.faltCuenta, t: o.t + s.total }), { c: 0, f: 0, p: 0, x: 0, t: 0 });
+  const pct = (n) => (tot.t ? `${Math.round((n / tot.t) * 100)}%` : "—");
+  // Por sucursal (solo semanas cerradas para Pendiente/Faltante; las abiertas solo suman Conciliado y Fuera de tiempo).
+  const porSuc = {};
+  visitas.forEach((v) => {
+    const cerrada = aiSumaISO(concLunes(v.fecha), 6) < hoy;
+    const s = (porSuc[v.sucursal] = porSuc[v.sucursal] || { sucursal: v.sucursal, c: 0, f: 0, p: 0, x: 0 });
+    if (v.estado === "Conciliado") s.c++; else if (v.estado === "Fuera de tiempo") s.f++; else if (cerrada) { if (v.estado === "Pendiente") s.p++; else s.x++; }
+  });
+  const filasSuc = Object.values(porSuc).map((s) => ({ ...s, t: s.c + s.f + s.p + s.x })).sort((a, b) => (a.t ? a.c / a.t : 1) - (b.t ? b.c / b.t : 1) || a.sucursal.localeCompare(b.sucursal, "es"));
+  const columnas = [
+    { titulo: "Semana", valor: (s) => `${fechaDDMMAAAA(s.lunes)} al ${fechaDDMMAAAA(s.domingo)}${s.enCurso ? " (en curso)" : ""}` }, { titulo: "Visitas medidas", valor: (s) => s.total }, { titulo: "Conciliado", valor: (s) => s["Conciliado"] },
+    { titulo: "Fuera de tiempo", valor: (s) => s["Fuera de tiempo"] }, { titulo: "Pendiente sin resolver", valor: (s) => s.pendCuenta }, { titulo: "Faltante sin resolver", valor: (s) => s.faltCuenta }, { titulo: "% conciliado a tiempo", valor: (s) => (s.pct == null ? "" : `${s.pct}%`) },
+  ];
+  const colorPct = (p) => (p == null ? T.muted : p >= 90 ? "#1F8A4C" : p >= 70 ? "#B07A12" : T.bad);
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Control interno</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Mediciones</h1><span style={{ fontSize: 12, color: T.muted }}>desempeño semanal de la recepción de cortes</span></div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 14 }}>La base son los días Conciliado y Fuera de tiempo. Pendiente y Faltante son estados temporales: solo se miden cuando la semana ya cerró (domingo) y siguen sin resolverse.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
+        {[["Conciliado", tot.c], ["Fuera de tiempo", tot.f], ["Pendiente", tot.p], ["Faltante", tot.x]].map(([k, n]) => (
+          <div key={k} style={{ ...sx.repCard, borderLeft: `4px solid ${CONC_ESTADOS[k].color}` }}>
+            <div style={{ fontSize: 11.5, color: T.muted }}>{k}{k === "Pendiente" || k === "Faltante" ? " (sin resolver)" : ""}</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: CONC_ESTADOS[k].color }}>{n}</div>
+            <div style={{ fontSize: 11.5, color: T.muted }}>{pct(n)} de {tot.t} visitas medidas</div>
+          </div>
+        ))}
+      </div>
+      <NominaTarjeta titulo="Por semana" tituloArchivo="Mediciones de conciliacion" hechos={[["Visitas medidas", String(tot.t)], ["Conciliado a tiempo", pct(tot.c)]]} exportar={{ columnas, filas: semanas }} onCerrar={onSalir}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr><th style={nomThL}>Semana</th><th style={nomTh}>Visitas medidas</th><th style={nomTh}>Conciliado</th><th style={nomTh}>Fuera de tiempo</th><th style={nomTh}>Pendiente sin resolver</th><th style={nomTh}>Faltante sin resolver</th><th style={nomTh}>% a tiempo</th></tr></thead>
+          <tbody>
+            {semanas.map((s) => (
+              <tr key={s.lunes}>
+                <td style={{ ...nomTdL, fontWeight: 600 }}>{fechaDDMMAAAA(s.lunes)} al {fechaDDMMAAAA(s.domingo)}{s.enCurso && <span style={{ fontSize: 10.5, color: T.muted, fontWeight: 500 }}> · en curso</span>}</td>
+                <td style={nomTd}>{s.total}</td>
+                <td style={{ ...nomTd, color: CONC_ESTADOS["Conciliado"].color, fontWeight: 600 }}>{s["Conciliado"]}</td>
+                <td style={{ ...nomTd, color: s["Fuera de tiempo"] ? CONC_ESTADOS["Fuera de tiempo"].color : undefined, fontWeight: 600 }}>{s["Fuera de tiempo"]}</td>
+                <td style={{ ...nomTd, color: s.pendCuenta ? CONC_ESTADOS["Pendiente"].color : undefined, fontWeight: 600 }}>{s.enCurso ? "—" : s.pendCuenta}</td>
+                <td style={{ ...nomTd, color: s.faltCuenta ? CONC_ESTADOS["Faltante"].color : undefined, fontWeight: 600 }}>{s.enCurso ? "—" : s.faltCuenta}</td>
+                <td style={{ ...nomTd, fontWeight: 700, color: colorPct(s.pct) }}>{s.pct == null ? "—" : `${s.pct}%`}</td>
+              </tr>
+            ))}
+            {semanas.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>Todavía no hay visitas evaluables.</td></tr>}
+          </tbody>
+        </table>
+      </NominaTarjeta>
+      <div style={{ height: 16 }} />
+      <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>Por sucursal (acumulado)</div>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={nomThL}>Sucursal</th><th style={nomTh}>Visitas medidas</th><th style={nomTh}>Conciliado</th><th style={nomTh}>Fuera de tiempo</th><th style={nomTh}>Pendiente sin resolver</th><th style={nomTh}>Faltante sin resolver</th><th style={nomTh}>% a tiempo</th></tr></thead>
+            <tbody>
+              {filasSuc.map((s) => { const p = s.t ? Math.round((s.c / s.t) * 100) : null; return (
+                <tr key={s.sucursal}><td style={{ ...nomTdL, fontWeight: 600 }}>{s.sucursal}</td><td style={nomTd}>{s.t}</td><td style={nomTd}>{s.c}</td><td style={nomTd}>{s.f}</td><td style={nomTd}>{s.p}</td><td style={nomTd}>{s.x}</td><td style={{ ...nomTd, fontWeight: 700, color: colorPct(p) }}>{p == null ? "—" : `${p}%`}</td></tr>
+              ); })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   CONTROL INTERNO › CONTEO DE CORTES
+   Evalúa, por periodo de conteo (lunes o jueves), tres controles a partir de
+   lo que ya existe en Recepción y Conteo de cortes:
+     1) Tiempos: los cortes se contaron en la fecha programada.
+     2) Integridad: todos los cortes que debían contarse se contaron en ese periodo.
+     3) Diferencia: cada concentración de efectivo cuadra en $0.00 (sin compensar entre sí).
+   Lunes cuenta lo recibido de jueves a domingo; jueves, lo recibido de lunes a miércoles.
+   ============================================================ */
+const CC_CONTROLES = [
+  { key: "tiempos", nombre: "Tiempos de conteo", desc: "Los cortes deben contarse el día programado (lunes o jueves)." },
+  { key: "integridad", nombre: "Integridad del conteo", desc: "Todos los cortes recibidos en el periodo deben quedar contados." },
+  { key: "diferencia", nombre: "Diferencia en concentración", desc: "El efectivo contado debe coincidir con los cortes: diferencia de $0.00." },
+];
+const CC_COLOR = {
+  "Cumplido": { color: "#1F8A4C", fondo: "rgba(31,138,76,.13)" },
+  "Incumplido": { color: "#C23B33", fondo: "rgba(194,59,51,.13)" },
+  "Resuelto": { color: "#B07A12", fondo: "rgba(176,122,18,.15)" },
+  "En curso": { color: "#2B6CB0", fondo: "rgba(43,108,176,.13)" },
+  "Sin aplicar": { color: "#8C8C97", fondo: "rgba(140,140,151,.15)" },
+};
+const ccChip = (estado, texto) => { const c = CC_COLOR[estado]; return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 10px", borderRadius: 99, color: c.color, background: c.fondo, whiteSpace: "nowrap" }}>{texto || estado}</span>; };
+const CC_INC_ESTADOS = ["Abierta", "En seguimiento", "Cerrada"];
+
+function ccEvaluar(recepciones, conteos, incidencias, hoy) {
+  const validos = conteos.filter(aiCuentaHaciaSaldo);
+  const cortes = [];
+  recepciones.forEach((r) => (r.cortes || []).forEach((c) => { if (r.fecha) cortes.push({ sucursal: c.sucursal, fechaCorte: c.fecha, contadoFlag: !!c.contado, recepcion: r.fecha }); }));
+  if (!cortes.length) return [];
+  const primera = cortes.reduce((m, c) => (c.recepcion < m ? c.recepcion : m), hoy);
+  const periodos = [];
+  for (let D = primera; D <= hoy; D = aiSumaISO(D, 1)) {
+    const dow = concDiaSem(D);
+    if (dow !== 1 && dow !== 4) continue; // lunes y jueves
+    const ini = aiSumaISO(D, dow === 1 ? -4 : -3), fin = aiSumaISO(D, -1);
+    const debian = cortes.filter((c) => c.recepcion >= ini && c.recepcion <= fin).map((c) => {
+      const k = validos.filter((v) => (v.bloques || []).some((b) => b.sucursal === c.sucursal && b.fecha === c.fechaCorte));
+      const fechaConteo = k.length ? k.map((v) => v.fecha).sort()[0] : null;
+      const estado = k.length ? (fechaConteo === D ? "En plazo" : "Fuera de tiempo") : c.contadoFlag ? "Fuera de tiempo" : "Pendiente";
+      return { ...c, fechaConteo, estado, conteos: k };
+    }).sort((a, b) => a.recepcion.localeCompare(b.recepcion) || a.sucursal.localeCompare(b.sucursal, "es"));
+    if (!debian.length) continue;
+    const abierta = D >= hoy;
+    const due = debian.length;
+    const dentro = debian.filter((c) => c.estado === "En plazo").length;
+    const fuera = debian.filter((c) => c.estado === "Fuera de tiempo").length;
+    const pend = debian.filter((c) => c.estado === "Pendiente").length;
+    const ids = new Set(); const conc = [];
+    debian.forEach((c) => c.conteos.forEach((k) => { if (!ids.has(k.id)) { ids.add(k.id); conc.push({ id: k.id, fecha: k.fecha, contador: k.contador, teorico: aiTotalTeoricoConteo(k), fisico: Math.round((aiTotalConteo(k.consolidado) + (Number(k.salidaCentavos) || 0)) * 100) / 100, dif: aiDiferenciaConteo(k), estadoConteo: k.estado }); } }));
+    const concDif = conc.filter((k) => Math.abs(k.dif) >= 0.005);
+    const base = {
+      tiempos: fuera > 0 ? "Incumplido" : dentro > 0 ? "Cumplido" : abierta ? "En curso" : "Incumplido",
+      integridad: dentro === due ? "Cumplido" : abierta && fuera === 0 ? "En curso" : "Incumplido",
+      diferencia: concDif.length ? "Incumplido" : conc.length ? "Cumplido" : abierta ? "En curso" : "Sin aplicar",
+    };
+    const s = (n, uno, varios) => (n === 1 ? uno : varios);
+    const problema = {
+      tiempos: fuera > 0
+        ? `${s(fuera, "1 corte", `${fuera} cortes`)} de ${due} ${s(fuera, "se contó", "se contaron")} en una fecha distinta a la programada (${fechaDDMMAAAA(D)}).`
+        : `El día programado (${fechaDDMMAAAA(D)}) no se realizó ningún conteo. Los ${due} cortes siguen sin contar.`,
+      integridad: `Solo ${dentro} de ${due} cortes se contaron dentro del periodo.${pend ? ` ${pend} ${s(pend, "sigue", "siguen")} sin contar.` : ""}`,
+      diferencia: `${s(concDif.length, "1 concentración no cuadra", `${concDif.length} concentraciones no cuadran`)}: el efectivo físico no coincide con los cortes contados. ${concDif.map((k) => `Conteo del ${fechaDDMMAAAA(k.fecha)}: ${k.dif > 0 ? "+" : "-"}${aiMoney(Math.abs(k.dif))}`).join(" · ")}.`,
+    };
+    const okTxt = {
+      tiempos: "Todos los cortes se contaron el día programado.",
+      integridad: `Los ${due} cortes del periodo se contaron dentro del periodo.`,
+      diferencia: conc.length ? "Todas las concentraciones cuadraron en $0.00." : "Sin concentraciones que evaluar todavía.",
+    };
+    const controles = CC_CONTROLES.map((ct) => {
+      const inc = incidencias.find((x) => x.id === `${D}|${ct.key}`);
+      // Una incidencia registrada hace que el incumplimiento no desaparezca aunque luego se corrija el dato.
+      const estado = inc ? (inc.estado === "Cerrada" ? "Resuelto" : "Incumplido") : base[ct.key];
+      return { ...ct, base: base[ct.key], estado, inc, problema: problema[ct.key], ok: base[ct.key] === "En curso" ? "El periodo sigue abierto: todavía puede cumplirse." : okTxt[ct.key] };
+    });
+    periodos.push({ D, dow, ini, fin, abierta, debian, due, dentro, fuera, pend, conc, concDif, controles });
+  }
+  return periodos.reverse();
+}
+
+function CcIncidenciaModal({ periodo, controles, incidencias, onGuardar, onCerrar }) {
+  const oscuro = document.documentElement.classList.contains("fy-dark");
+  const c = oscuro ? { fondo: "#17171b", texto: "#F2F2F4", borde: "#34343b", caja: "#0e0e11", suave: "#9A9AA5" } : { fondo: "#fff", texto: T.ink, borde: T.line, caja: "#fff", suave: T.muted };
+  const idDe = (ct) => `${periodo.D}|${ct.key}`;
+  const [vals, setVals] = useState(() => {
+    const o = {};
+    controles.forEach((ct) => { const i = incidencias.find((x) => x.id === idDe(ct)); o[ct.key] = { causa: i?.causa || "", responsable: i?.responsable || "", accion: i?.accion || "", evidencias: i?.evidencias || "", nota: "", estado: i?.estado || "Abierta" }; });
+    return o;
+  });
+  const set = (k, campo, v) => setVals((p) => ({ ...p, [k]: { ...p[k], [campo]: v } }));
+  const guardar = () => {
+    const ahora = new Date().toISOString();
+    const items = controles.map((ct) => {
+      const v = vals[ct.key];
+      const previa = incidencias.find((x) => x.id === idDe(ct));
+      const hayAlgo = v.causa.trim() || v.responsable.trim() || v.accion.trim() || v.evidencias.trim() || v.nota.trim() || v.estado !== "Abierta";
+      if (!previa && !hayAlgo) return null;
+      const seguimiento = [...(previa?.seguimiento || []), ...(v.nota.trim() ? [{ fecha: ahora, por: getUsername(), texto: v.nota.trim() }] : [])];
+      const cierra = v.estado === "Cerrada" && previa?.estado !== "Cerrada";
+      return { id: idDe(ct), periodo: periodo.D, control: ct.key, problema: previa?.problema || ct.problema, causa: v.causa.trim(), responsable: v.responsable.trim(), accion: v.accion.trim(), evidencias: v.evidencias.trim(), seguimiento, estado: v.estado, detectadoEn: previa?.detectadoEn || ahora, cerradaPor: cierra ? getUsername() : previa?.cerradaPor, cerradaEn: cierra ? ahora : previa?.cerradaEn, actualizadoPor: getUsername(), actualizadoEn: ahora };
+    }).filter(Boolean);
+    if (items.length) onGuardar(items);
+    onCerrar();
+  };
+  const campo = { width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 11, border: `1px solid ${c.borde}`, background: c.caja, color: c.texto, fontFamily: "inherit", fontSize: 13.5, outline: "none" };
+  const etq = { fontSize: 12, color: c.suave, margin: "10px 0 4px" };
+  return createPortal(
+    <div onClick={onCerrar} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.55)", zIndex: 600, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: c.fondo, color: c.texto, borderRadius: 16, width: 620, maxWidth: "96vw", maxHeight: "92vh", overflowY: "auto", padding: 22, boxShadow: "0 20px 60px rgba(0,0,0,.4)", border: `1px solid ${c.borde}` }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>Incidencia · conteo del {NOMBRES_DIA[periodo.dow]} {fechaDDMMAAAA(periodo.D)}</div>
+          <button onClick={onCerrar} style={{ border: "none", background: "none", cursor: "pointer", color: c.suave, fontSize: 20, lineHeight: 1 }}>×</button>
+        </div>
+        {controles.map((ct, idx) => {
+          const v = vals[ct.key], previa = incidencias.find((x) => x.id === idDe(ct));
+          return (
+            <div key={ct.key} style={{ paddingTop: 16, marginTop: 16, borderTop: `1px solid ${c.borde}` }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}><strong>{ct.nombre}</strong>{ccChip(ct.estado)}</div>
+              <div style={{ fontSize: 12.5, margin: "8px 0", padding: "8px 12px", borderRadius: 10, background: oscuro ? "#241717" : "#FDEEEC", color: oscuro ? "#F0A29C" : "#8A2A24" }}><strong>Detectado automáticamente:</strong> {previa?.problema || ct.problema}</div>
+              <div style={etq}>Causa del incumplimiento</div>
+              <textarea value={v.causa} onChange={(e) => set(ct.key, "causa", e.target.value)} style={{ ...campo, minHeight: 64, resize: "vertical" }} />
+              <div style={etq}>Responsable de la corrección</div>
+              <input value={v.responsable} onChange={(e) => set(ct.key, "responsable", e.target.value)} style={campo} placeholder="Nombre de la persona" />
+              <div style={etq}>Acción correctiva</div>
+              <textarea value={v.accion} onChange={(e) => set(ct.key, "accion", e.target.value)} style={{ ...campo, minHeight: 64, resize: "vertical" }} />
+              <div style={etq}>Evidencias (descripción o enlace)</div>
+              <textarea value={v.evidencias} onChange={(e) => set(ct.key, "evidencias", e.target.value)} style={{ ...campo, minHeight: 52, resize: "vertical" }} />
+              <div style={etq}>Seguimiento</div>
+              {(previa?.seguimiento || []).length > 0 && (
+                <div style={{ display: "grid", gap: 6, marginBottom: 8 }}>
+                  {previa.seguimiento.map((s, i) => <div key={i} style={{ fontSize: 12.5, padding: "7px 10px", borderRadius: 9, border: `1px solid ${c.borde}` }}><span style={{ color: c.suave }}>{new Date(s.fecha).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" })} · {s.por}</span><div>{s.texto}</div></div>)}
+                </div>
+              )}
+              <textarea value={v.nota} onChange={(e) => set(ct.key, "nota", e.target.value)} style={{ ...campo, minHeight: 48, resize: "vertical" }} placeholder="Agregar una nota de seguimiento…" />
+              <div style={etq}>Estado de la incidencia</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {CC_INC_ESTADOS.map((e) => (
+                  <label key={e} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 14 }}>
+                    <input type="radio" name={`cc-${ct.key}`} checked={v.estado === e} onChange={() => set(ct.key, "estado", e)} style={{ width: 18, height: 18, accentColor: "#0F6E66" }} /> {e === "Cerrada" ? "Cerrada (resolución verificada)" : e}
+                  </label>
+                ))}
+              </div>
+              {previa?.estado === "Cerrada" && previa.cerradaEn && <div style={{ fontSize: 11.5, color: c.suave, marginTop: 6 }}>Cerrada por {previa.cerradaPor} el {new Date(previa.cerradaEn).toLocaleDateString("es-MX")}</div>}
+            </div>
+          );
+        })}
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+          <button onClick={onCerrar} style={{ border: `1px solid ${c.borde}`, background: "transparent", color: c.texto, fontSize: 13, fontWeight: 600, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
+          <button onClick={guardar} style={{ border: "none", background: "#0F6E66", color: "#fff", fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Guardar</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function CtrlConteoCortes({ recepciones, conteos, incidencias, onGuardar, onSalir }) {
+  const hoy = fechaLocalISO();
+  const [mov, setMov] = useState("todos"); // todos | incumple | actual | anterior | rango
+  const [desde, setDesde] = useState(`${hoy.slice(0, 7)}-01`);
+  const [hasta, setHasta] = useState(hoy);
+  const [abierto, setAbierto] = useState(null); // { D, tipo: "resumen" | "explicacion" | "detalle" }
+  const [menu, setMenu] = useState(null); // D del periodo con el menú de tres puntitos abierto
+  const [detalle, setDetalle] = useState(null); // D del periodo cuyo detalle se muestra en pantalla aparte
+  const [modal, setModal] = useState(null); // { periodo, controles }
+  const todos = useMemo(() => ccEvaluar(recepciones, conteos, incidencias, hoy), [recepciones, conteos, incidencias, hoy]);
+  const mesAnt = (() => { const y = Number(hoy.slice(0, 4)), m = Number(hoy.slice(5, 7)); const t = y * 12 + (m - 1) - 1; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; })();
+  const periodos = todos.filter((p) => {
+    if (mov === "incumple") return p.controles.some((c) => c.estado === "Incumplido" || c.estado === "Resuelto");
+    if (mov === "actual") return p.D >= `${hoy.slice(0, 7)}-01`;
+    if (mov === "anterior") return p.D >= `${mesAnt}-01` && p.D <= finDeMes(mesAnt);
+    if (mov === "rango") { const a = desde <= hasta ? desde : hasta, b = desde <= hasta ? hasta : desde; return p.D >= a && p.D <= b; }
+    return true;
+  });
+  const lbl = { fontSize: 11, color: T.muted, marginBottom: 3 };
+  const pDetalle = detalle ? todos.find((x) => x.D === detalle) : null;
+  if (pDetalle) return <CcDetalle p={pDetalle} onVolver={() => setDetalle(null)} />;
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Control interno</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Conteo de Cortes</h1><span style={{ fontSize: 12, color: T.muted }}>tiempos, integridad y diferencias de cada periodo de conteo</span></div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 14 }}>Lunes: cortes recibidos de jueves a domingo. Jueves: cortes recibidos de lunes a miércoles. Todo se toma de Recepción y Conteo de cortes; los incumplimientos quedan registrados aunque después se corrijan.</div>
+      <div className="noprint" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+        <div><div style={lbl}>Movimientos</div>
+          <select value={mov} onChange={(e) => setMov(e.target.value)} className="sel" style={{ ...sx.sel, width: "auto", minWidth: 190 }}>
+            <option value="todos">Todos</option><option value="incumple">Con incumplimientos</option><option value="actual">Mes actual</option><option value="anterior">Mes anterior</option><option value="rango">Rango de fechas</option>
+          </select>
+        </div>
+        {mov === "rango" && <div><div style={lbl}>Periodo</div><RangoFechas desde={desde} hasta={hasta} max={hoy} onChange={(a, b) => { setDesde(a); setHasta(b); }} /></div>}
+      </div>
+      {periodos.length === 0 ? <div style={sx.empty}>No hay periodos de conteo para mostrar con ese filtro.</div> : (
+        <div style={{ display: "grid", gap: 8 }}>
+          {periodos.map((p) => {
+            const ab = abierto?.D === p.D;
+            const tipo = ab ? abierto.tipo : null;
+            const conProblema = p.controles.filter((c) => c.estado === "Incumplido" || c.estado === "Resuelto" || c.base === "Incumplido");
+            const hayInc = p.controles.some((c) => c.inc);
+            const ver = (t) => { setMenu(null); setAbierto(tipo === t ? null : { D: p.D, tipo: t }); };
+            const itemMenu = { display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", border: "none", background: "transparent", color: T.ink, fontSize: 13, fontWeight: 600, padding: "10px 14px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" };
+            return (
+              <div key={p.D} style={sx.repCard}>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "14px 28px" }}>
+                  <div style={{ width: 210 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>{NOMBRES_DIA[p.dow]} {fechaDDMMAAAA(p.D)}</div>
+                    <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>Cortes recibidos del {fechaDDMMAAAA(p.ini).slice(0, 5)} al {fechaDDMMAAAA(p.fin).slice(0, 5)}</div>
+                  </div>
+                  <div style={{ display: "flex", gap: 22 }}>
+                    {[["Por contar", p.due, undefined], ["En tiempo", p.dentro, CC_COLOR["Cumplido"].color], ["Fuera de tiempo", p.fuera, p.fuera ? CC_COLOR["Resuelto"].color : undefined], ["Pendientes", p.pend, p.pend ? CC_COLOR["Incumplido"].color : undefined]].map(([t, v, col]) => (
+                      <div key={t} style={{ textAlign: "center", minWidth: 62 }}>
+                        <div style={{ fontSize: 19, fontWeight: 700, color: col }}>{v}</div>
+                        <div style={{ fontSize: 10.5, color: T.muted, marginTop: 1 }}>{t}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: "flex", gap: 18, marginLeft: "auto", alignItems: "center" }}>
+                    {p.controles.map((c) => (
+                      <div key={c.key} title={c.nombre} style={{ display: "grid", gap: 4, justifyItems: "center", minWidth: 96 }}>
+                        <span style={{ fontSize: 10.5, color: T.muted, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em" }}>{c.key === "diferencia" ? "Diferencia $" : c.key === "tiempos" ? "Tiempos" : "Integridad"}</span>
+                        {ccChip(c.estado)}
+                      </div>
+                    ))}
+                    <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+                      <button title="Opciones" onClick={() => setMenu(menu === p.D ? null : p.D)} style={{ border: `1px solid ${hayInc ? T.brand : T.line}`, background: hayInc ? T.brandSoft : "transparent", borderRadius: 8, width: 30, height: 26, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: hayInc ? T.brand : T.muted }}><Ico name="MoreHorizontal" size={16} /></button>
+                      {menu === p.D && (
+                        <>
+                          <div onClick={() => setMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 50 }} />
+                          <div style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 60, background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, boxShadow: "0 12px 28px rgba(0,0,0,.2)", padding: 5, minWidth: 190 }}>
+                            <button className="rowbtn" disabled={conProblema.length === 0} onClick={() => { setMenu(null); setModal({ periodo: p, controles: conProblema }); }} style={{ ...itemMenu, opacity: conProblema.length ? 1 : 0.4, cursor: conProblema.length ? "pointer" : "default" }}><Ico name="ClipboardPen" size={15} /> Incidencia</button>
+                            <button className="rowbtn" onClick={() => ver("explicacion")} style={itemMenu}><Ico name="Info" size={15} /> Explicación</button>
+                            <button className="rowbtn" onClick={() => { setMenu(null); setDetalle(p.D); }} style={itemMenu}><Ico name="ListChecks" size={15} /> Detalle</button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {ab && (
+                  <div style={{ marginTop: 14, display: "grid", gap: 16 }}>
+                    {tipo === "explicacion" && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+                      {p.controles.map((c) => (
+                        <div key={c.key} style={{ border: `1px solid ${T.line}`, borderRadius: 12, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}><strong style={{ fontSize: 13 }}>{c.nombre}</strong>{ccChip(c.estado, c.estado === "Resuelto" ? "Incumplido · resuelto" : c.estado)}</div>
+                          <div style={{ fontSize: 11.5, color: T.muted, marginTop: 4 }}>{c.desc}</div>
+                          <div style={{ fontSize: 12.5, marginTop: 10, lineHeight: 1.45, fontWeight: 500 }}>{(c.base === "Incumplido" || c.inc) ? (c.inc?.problema || c.problema) : c.ok}</div>
+                          {c.inc && <div style={{ fontSize: 11.5, marginTop: 6, color: incColor[c.inc.estado === "Cerrada" ? "Resuelto" : c.inc.estado === "En seguimiento" ? "En investigación" : "Pendiente"] }}>Incidencia: {c.inc.estado}{c.inc.responsable ? ` · ${c.inc.responsable}` : ""}</div>}
+                        </div>
+                      ))}
+                    </div>}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {modal && <CcIncidenciaModal periodo={modal.periodo} controles={modal.controles} incidencias={incidencias} onGuardar={onGuardar} onCerrar={() => setModal(null)} />}
+    </div>
+  );
+}
+
+/* Pantalla aparte con todo el detalle de un periodo de conteo: cada corte y cada concentración. */
+function CcDetalle({ p, onVolver }) {
+  const estadoCorte = { "En plazo": "Cumplido", "Fuera de tiempo": "Resuelto", "Pendiente": "Incumplido" };
+  const contadoEl = (c) => (c.fechaConteo ? fechaDDMMAAAA(c.fechaConteo) : c.estado === "Fuera de tiempo" ? "sin fecha" : "—");
+  const titulo = `${NOMBRES_DIA[p.dow]} ${fechaDDMMAAAA(p.D)}`;
+  return (
+    <div>
+      <button onClick={onVolver} style={sx.back}>‹ Conteo de Cortes</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Detalle del conteo</h1><span style={{ fontSize: 12, color: T.muted }}>{titulo}</span></div>
+      <div style={{ display: "grid", gap: 16 }}>
+        <NominaTarjeta
+          titulo="Cortes del periodo" tituloArchivo={`Conteo de cortes ${p.D}`}
+          hechos={[["Fecha programada", fechaDDMMAAAA(p.D)], ["Cortes recibidos", `del ${fechaDDMMAAAA(p.ini)} al ${fechaDDMMAAAA(p.fin)}`], ["Por contar", String(p.due)], ["Contados en tiempo", String(p.dentro)], ["Fuera de tiempo", String(p.fuera)], ["Pendientes", String(p.pend)]]}
+          exportar={{ columnas: [{ titulo: "Sucursal", valor: (c) => c.sucursal }, { titulo: "Fecha del corte", valor: (c) => c.fechaCorte }, { titulo: "Recepcionado el", valor: (c) => fechaDDMMAAAA(c.recepcion) }, { titulo: "Contado el", valor: contadoEl }, { titulo: "Resultado", valor: (c) => c.estado }], filas: p.debian }}
+          onCerrar={onVolver}
+        >
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead><tr><th style={nomThL}>Sucursal</th><th style={nomTh}>Fecha del corte</th><th style={nomTh}>Recepcionado el</th><th style={nomTh}>Contado el</th><th style={nomTh}>Resultado</th></tr></thead>
+            <tbody>
+              {p.debian.map((c, i) => (
+                <tr key={i}>
+                  <td style={{ ...nomTdL, fontWeight: 600 }}>{c.sucursal}</td><td style={nomTd}>{c.fechaCorte}</td><td style={nomTd}>{fechaDDMMAAAA(c.recepcion)}</td>
+                  <td style={nomTd}>{contadoEl(c)}</td><td style={nomTd}>{ccChip(estadoCorte[c.estado], c.estado)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </NominaTarjeta>
+        <div style={{ background: T.card, border: `1px solid ${T.line}`, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>Concentraciones de efectivo</div>
+          <div style={{ fontSize: 12, color: T.muted, marginBottom: 12 }}>Cada una se evalúa por separado; las diferencias no se compensan entre sí.</div>
+          {p.conc.length === 0 ? <div style={{ fontSize: 12.5, color: T.muted }}>Todavía no hay conteo registrado para estos cortes.</div> : (
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr><th style={nomThL}>Conteo</th><th style={nomTh}>Importe de cortes contados</th><th style={nomTh}>Efectivo físico concentrado</th><th style={nomTh}>Diferencia</th><th style={nomTh}>Resultado</th></tr></thead>
+                <tbody>
+                  {p.conc.map((k) => { const sin = Math.abs(k.dif) < 0.005; return (
+                    <tr key={k.id}>
+                      <td style={{ ...nomTdL, fontWeight: 600 }}>{fechaDDMMAAAA(k.fecha)}{k.contador ? ` · ${k.contador}` : ""}</td><td style={nomTd}>{aiMoney(k.teorico)}</td><td style={nomTd}>{aiMoney(k.fisico)}</td>
+                      <td style={{ ...nomTd, fontWeight: 700, color: sin ? CC_COLOR["Cumplido"].color : CC_COLOR["Incumplido"].color }}>{sin ? "$0.00" : `${k.dif > 0 ? "+" : ""}${aiMoney(k.dif)}`}</td>
+                      <td style={nomTd}>{ccChip(sin ? "Cumplido" : "Incumplido", sin ? "Sin diferencia" : "Con diferencia")}</td>
+                    </tr>
+                  ); })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const AI_PANELES_CAPTURA = [
   { key: "recepcion", nombre: "Recepción de Cortes", icon: "Inbox", activo: true, desc: "Cortes recibidos de sucursal" },
   { key: "conteo", nombre: "Conteo de Cortes", icon: "Banknote", activo: true, desc: "Conteo físico, billete por billete" },
@@ -2971,7 +3736,7 @@ function AIRecepcionForm({ onGuardar, onGuardarDirecto, onCancelar, inicial, blo
     <div style={{ ...sx.repCard, display: "grid", gap: 16 }}>
       <div style={{ fontWeight: 600, fontSize: 14 }}>{tituloForm || "Nueva recepción de cortes"}</div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
-        <TField label="Fecha de recepción">{bloquearFecha ? <div style={{ ...sx.sel, fontWeight: 600, background: T.paper, color: T.ink, display: "flex", alignItems: "center", gap: 6 }}><Ico name="Lock" size={12} color={T.muted} />{fecha}</div> : <input type="date" value={fecha} max={aiHoyISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} />}</TField>
+        <TField label="Fecha de recepción">{(bloquearFecha || !inicial) ?<div style={{ ...sx.sel, fontWeight: 600, background: T.paper, color: T.ink, display: "flex", alignItems: "center", gap: 6 }}><Ico name="Lock" size={12} color={T.muted} />{fecha}</div> : <input type="date" value={fecha} max={aiHoyISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} />}</TField>
         <AISelectorNombre label="Quién entrega" valor={entrega} onChange={setEntrega} opciones={nombresEntrega} onAgregar={onAgregarEntrega} onEliminar={(n) => { onEliminarEntrega(n); if (entrega === n) setEntrega(""); }} placeholder="Selecciona quién entrega" />
         <AISelectorNombre label="Quién recibe" valor={recibe} onChange={setRecibe} opciones={nombresRecibe} onAgregar={onAgregarRecibe} onEliminar={(n) => { onEliminarRecibe(n); if (recibe === n) setRecibe(""); }} placeholder="Selecciona quién recibe" />
       </div>
@@ -4916,9 +5681,7 @@ function AIModalProductosInventario({ productosInventario, setProductosInventari
 
 function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTerminacionesAI, responsablesAI, setResponsablesAI, empleadosAsistencia, setEmpleadosAsistencia, cortesSucursal, setCortesSucursal, inventariosSucursal, setInventariosSucursal, productosInventario, setProductosInventario, onSalir }) {
   const [abierto, setAbierto] = useState(false);
-  const [abiertoAsistencia, setAbiertoAsistencia] = useState(false);
   const [abiertoTerm, setAbiertoTerm] = useState(false);
-  const [abiertoResp, setAbiertoResp] = useState(false);
   const [abiertoGastos, setAbiertoGastos] = useState(false);
   const [abiertoInv, setAbiertoInv] = useState(false);
   const [abiertoProductos, setAbiertoProductos] = useState(false);
@@ -4944,24 +5707,6 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTe
             <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Para identificar sucursales en el reporte del banco (Auditoría)</div>
           </div>
           <button onClick={() => setAbiertoTerm(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Responsables</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Selector de nombres al capturar gastos, descuentos y quién captura</div>
-          </div>
-          <button onClick={() => setAbiertoResp(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Registro asistencia</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Personal de cada sucursal que aparece al capturar su asistencia</div>
-          </div>
-          <button onClick={() => setAbiertoAsistencia(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
             Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
           </button>
         </div>
@@ -4996,8 +5741,6 @@ function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTe
 
       {abierto && <AIModalSucursales sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onCerrar={() => setAbierto(false)} />}
       {abiertoTerm && <AIModalTerminaciones sucursalesAI={sucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} onCerrar={() => setAbiertoTerm(false)} />}
-      {abiertoResp && <AIModalResponsables responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} onCerrar={() => setAbiertoResp(false)} />}
-      {abiertoAsistencia && <AIModalEmpleadosAsistencia sucursalesAI={sucursalesAI} empleados={empleadosAsistencia} setEmpleados={setEmpleadosAsistencia} onCerrar={() => setAbiertoAsistencia(false)} />}
       {abiertoGastos && <AIModalGastosDescuentos cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} onCerrar={() => setAbiertoGastos(false)} />}
       {abiertoInv && <AIModalInventariosSucursal inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} onCerrar={() => setAbiertoInv(false)} />}
       {abiertoProductos && <AIModalProductosInventario productosInventario={productosInventario} setProductosInventario={setProductosInventario} onCerrar={() => setAbiertoProductos(false)} />}
@@ -5846,6 +6589,100 @@ function AuditoriaInterna({ onCerrarSesion }) {
 }
 
 /* ============================================================
+   CONTROL INTERNO — revisión del trabajo de otras áreas.
+   Solo para CONC_USUARIOS. Grupo "Cortes": Conciliación + dos apartados por definir.
+   ============================================================ */
+const CI_GRUPOS = [
+  { titulo: "Cortes", paneles: [
+    { key: "conciliacion", nombre: "Conciliación", icon: "ClipboardCheck", activo: true, desc: "Recepción del auditor contra la ruta del chofer" },
+    { key: "conteo_cortes", nombre: "Conteo de Cortes", icon: "Banknote", activo: true, desc: "Tiempos, integridad y diferencias del conteo" },
+  ] },
+];
+function ControlInterno({ onCerrarSesion }) {
+  const [panel, setPanel] = useState(null);
+  const [recepciones, , recepcionesListas] = usePersistedCollection("recepciones");
+  const [sucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
+  const [incidencias, setIncidencias, incidenciasListas] = usePersistedCollection("incidencias_conciliacion");
+  const [rutaLista] = usePersistedList("ruta_cortes", RUTA_POR_DEFECTO);
+  const ruta = useMemo(() => construirRuta(rutaLista), [rutaLista]);
+  const hoy = fechaLocalISO();
+  const [conteosCC, , conteosCCListos] = usePersistedCollection("conteos");
+  const [incidenciasCC, setIncidenciasCC, incidenciasCCListas] = usePersistedCollection("incidencias_conteo");
+  const listos = recepcionesListas && incidenciasListas;
+  const listosCC = recepcionesListas && conteosCCListos && incidenciasCCListas;
+  const periodosCC = useMemo(() => (listosCC ? ccEvaluar(recepciones, conteosCC, incidenciasCC, hoy) : []), [listosCC, recepciones, conteosCC, incidenciasCC, hoy]);
+  const ccIncumple = periodosCC.filter((p) => p.controles.some((c) => c.estado === "Incumplido")).length;
+  const guardarIncidenciasCC = (items) => setIncidenciasCC((prev) => { const ids = new Set(items.map((i) => i.id)); return [...prev.filter((x) => !ids.has(x.id)), ...items]; });
+  const visitas = useMemo(() => (listos ? concVisitas(concEvaluar(recepciones, hoy, "2000-01-01", hoy, ruta)) : []), [listos, recepciones, hoy, ruta]);
+  const guardarIncidencias = (items) => setIncidencias((prev) => { const ids = new Set(items.map((i) => i.id)); return [...prev.filter((x) => !ids.has(x.id)), ...items]; });
+  const pendientes = visitas.filter((v) => v.estado !== "Conciliado" && incidencias.find((x) => x.id === incId(v.fecha, v.sucursal))?.estado !== "Resuelto");
+  const sinCapturar = pendientes.filter((v) => !incidencias.some((x) => x.id === incId(v.fecha, v.sucursal))).length;
+  const medidas = concMediciones(visitas, hoy);
+  const medTot = medidas.reduce((o, s) => ({ c: o.c + s["Conciliado"], t: o.t + s.total }), { c: 0, t: 0 });
+  const nombrePanel = panel === "pendientes" ? "Pendientes" : panel === "mediciones" ? "Mediciones" : CI_GRUPOS.flatMap((g) => g.paneles).find((p) => p.key === panel)?.nombre;
+  const tag = { display: "inline-block", marginTop: 8, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: T.muted, background: T.lineSoft, padding: "3px 9px", borderRadius: 99 };
+  return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Control interno</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{nombrePanel || "Panel principal"}</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        {panel === "conteo_cortes" ? (listosCC ? <CtrlConteoCortes recepciones={recepciones} conteos={conteosCC} incidencias={incidenciasCC} onGuardar={guardarIncidenciasCC} onSalir={() => setPanel(null)} /> : <div style={sx.empty}>Cargando datos…</div>)
+        : panel && !listos ? <div style={sx.empty}>Cargando datos…</div>
+        : panel === "conciliacion" ? <AIConciliacion recepciones={recepciones} sucursales={sucursalesAI} incidencias={incidencias} onGuardarIncidencias={guardarIncidencias} onSalir={() => setPanel(null)} />
+        : panel === "pendientes" ? <ConcPendientes visitas={visitas} incidencias={incidencias} onGuardar={guardarIncidencias} onSalir={() => setPanel(null)} />
+        : panel === "mediciones" ? <ConcMediciones visitas={visitas} hoy={hoy} onSalir={() => setPanel(null)} />
+        : (
+          <div>
+            <div style={sx.h1row}><h1 style={sx.h1}>Control interno</h1><span style={{ fontSize: 12, color: T.muted }}>Conciliación de información por puesto</span></div>
+            {CI_GRUPOS.map((g) => (
+              <div key={g.titulo}>
+                <div style={sx.sectionTitle}>{g.titulo}</div>
+                {g.titulo === "Cortes" && (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 14 }}>
+                    <button onClick={() => setPanel("pendientes")} disabled={!listos} className="rowbtn" style={{ ...sx.deptoCard, textAlign: "left", alignItems: "stretch", padding: "28px 28px", minHeight: 280, justifyContent: "space-between", cursor: "pointer" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}><Ico name="ListTodo" size={24} strokeWidth={1.7} color={T.brand} /><span style={{ fontWeight: 700, fontSize: 16 }}>Pendientes</span></div>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Incidencias de conciliación por atender</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 16 }}>
+                        <span style={{ fontSize: 56, fontWeight: 700, color: pendientes.length ? T.bad : T.ok }}>{listos ? pendientes.length : "…"}</span>
+                        <span style={{ fontSize: 12, color: T.muted }}>por atender{sinCapturar ? ` · ${sinCapturar} sin capturar` : ""}</span>
+                      </div>
+                    </button>
+                    <button onClick={() => setPanel("mediciones")} disabled={!listos} className="rowbtn" style={{ ...sx.deptoCard, textAlign: "left", alignItems: "stretch", padding: "28px 28px", minHeight: 280, justifyContent: "space-between", cursor: "pointer" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}><Ico name="BarChart3" size={24} strokeWidth={1.7} color={T.brand} /><span style={{ fontWeight: 700, fontSize: 16 }}>Mediciones</span></div>
+                      <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Desempeño semanal: Conciliado y Fuera de tiempo</div>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 16 }}>
+                        <span style={{ fontSize: 56, fontWeight: 700, color: T.brand }}>{listos && medTot.t ? `${Math.round((medTot.c / medTot.t) * 100)}%` : "—"}</span>
+                        <span style={{ fontSize: 12, color: T.muted }}>conciliado a tiempo</span>
+                      </div>
+                    </button>
+                  </div>
+                )}
+                <div style={{ ...sx.cards4, marginBottom: 30 }}>
+                  {g.paneles.map((p) => (
+                    <button key={p.key} disabled={!p.activo} onClick={() => p.activo && setPanel(p.key)} className={p.activo ? "rowbtn" : ""} style={{ ...sx.deptoCard, cursor: p.activo ? "pointer" : "default", opacity: p.activo ? 1 : 0.55 }}>
+                      <Ico name={p.icon} size={30} strokeWidth={1.6} color={p.activo ? T.brand : T.muted} />
+                      <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
+                      {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
+                      {p.key === "conteo_cortes" && listosCC && <div style={{ fontSize: 11.5, marginTop: 8, fontWeight: 600, color: ccIncumple ? CC_COLOR["Incumplido"].color : CC_COLOR["Cumplido"].color }}>{ccIncumple ? `${ccIncumple} periodo${ccIncumple === 1 ? "" : "s"} con incumplimientos` : "Sin incumplimientos abiertos"}</div>}
+                      {!p.activo && <span style={tag}>Próximamente</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </>
+  );
+}
+
+/* ============================================================
    NÓMINA SUCURSALES — llegan aquí los resúmenes de lo que cada sucursal
    captura en "Registro asistencia". Misma mecánica que "Recepción de Cortes":
    arriba se eligen opciones en menús desplegables y abajo aparece la
@@ -5876,7 +6713,7 @@ function NominaSucursales({ onCerrarSesion }) {
   const nomSel = { ...sx.sel, width: "auto", minWidth: 190 }; // dentro del componente: "sx" se define más abajo en el archivo
   const hoy = fechaLocalISO();
   const [sucursal, setSucursal] = useState(TODAS_SUC);
-  const [ver, setVer] = useState(""); // "" | dia | resumen | rotacion | bajas
+  const [ver, setVer] = useState("dia"); // "" | dia | resumen | rotacion | bajas
   // Resumen general: rango de fechas (si "hasta" queda vacío, es una sola fecha).
   const [desde, setDesde] = useState(`${mesActual()}-01`);
   const [hasta, setHasta] = useState(hoy);
@@ -5950,13 +6787,13 @@ function NominaSucursales({ onCerrarSesion }) {
     <>
       <header style={sx.header} className="noprint">
         <div>
-          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Nómina sucursales</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Registro asistencia sucursales</div>
           <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{subtitulo}</div>
         </div>
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
-        <div style={sx.h1row}><h1 style={sx.h1}>Nómina sucursales</h1><span style={{ fontSize: 12, color: T.muted }}>asistencia y horas capturadas por las sucursales</span></div>
+        <div style={sx.h1row}><h1 style={sx.h1}>Registro asistencia sucursales</h1><span style={{ fontSize: 12, color: T.muted }}>asistencia y horas capturadas por las sucursales</span></div>
 
         {!(ver === "dia" && diaAbierto) && <div className="noprint" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 18 }}>
           <div>
@@ -5965,7 +6802,7 @@ function NominaSucursales({ onCerrarSesion }) {
           </div>
           <div>
             <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>¿Qué quieres ver?</div>
-            {selector(ver, (v) => { setVer(v); setDiaAbierto(null); }, [["", "Elige una opción…"], ["dia", "Por día"], ["resumen", "Resumen general"], ["rotacion", "Rotación"], ["bajas", "Bajas y alertas"], ["horarios", "Horarios del personal"]], 200)}
+            {selector(ver, (v) => { setVer(v); setDiaAbierto(null); }, [["", "Elige una opción"], ["dia", "Por día"], ["resumen", "Resumen general"], ["rotacion", "Rotación"], ["bajas", "Bajas y alertas"]], 200)}
           </div>
           {ver === "resumen" && (
             <>
@@ -6062,8 +6899,7 @@ const chipEstatus = (estatus) => {
 
 /* Por día: lista de días capturados (como la lista de recepciones) → Ver. */
 function NominaPorDia({ docs, empleados, onClasificar, sucursal, mes, anio, abierto, setAbierto, onEliminar, onCerrar }) {
-  if (sucursal === TODAS_SUC) return <div style={sx.empty}>Elige una sucursal para ver su asistencia día por día.</div>;
-  const delaSuc = docs.filter((d) => d.sucursal === sucursal && (anio === "todos" || d.fecha.slice(0, 4) === anio) && (mes === "todos" || d.fecha.slice(5, 7) === mes)).sort((a, b) => b.fecha.localeCompare(a.fecha));
+  const delaSuc = docs.filter((d) => (sucursal === TODAS_SUC || d.sucursal === sucursal) && (anio === "todos" || d.fecha.slice(0, 4) === anio) && (mes === "todos" || d.fecha.slice(5, 7) === mes)).sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal));
   const doc = abierto ? docs.find((d) => d.id === abierto) : null;
   if (doc) {
     const columnas = [
@@ -6115,7 +6951,7 @@ function NominaPorDia({ docs, empleados, onClasificar, sucursal, mes, anio, abie
   }
   return (
     <div>
-      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>Días capturados por {sucursal}</div>
+      <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 12 }}>{sucursal === TODAS_SUC ? "Días capturados por todas las sucursales" : `Días capturados por ${sucursal}`} ({delaSuc.length})</div>
       {delaSuc.length === 0 ? (
         <div style={sx.empty}>La sucursal no tiene capturas con ese filtro.</div>
       ) : (
@@ -6125,6 +6961,7 @@ function NominaPorDia({ docs, empleados, onClasificar, sucursal, mes, anio, abie
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <strong>{d.fecha}</strong>
+                  {sucursal === TODAS_SUC && <strong style={{ color: T.brand }}>· {d.sucursal}</strong>}
                   <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.ok, background: T.okSoft }}>Capturado</span>
                 </div>
                 <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{d.registros.length} persona{d.registros.length === 1 ? "" : "s"} · {fmtHoras(d.registros.reduce((s, r) => s + horasDeRegistro(r), 0))} horas{d.capturadoPor ? ` · capturó ${d.capturadoPor}` : ""}</div>
@@ -6215,7 +7052,7 @@ function NominaResumen({ docs, empleados, sucursal, lista, desde, hasta, onCerra
 
 /* Horarios del personal: la hora de entrada y salida que le toca a cada persona.
    La sucursal no la ve; solo captura la hora real y el sistema compara. */
-function NominaHorarios({ empleados, sucursal, lista, onGuardar, onCerrar }) {
+function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onCerrar }) {
   const personal = empleados.filter((e) => lista.includes(e.sucursal) && !e.fechaBaja)
     .sort((x, y) => x.sucursal.localeCompare(y.sucursal, "es") || x.nombre.localeCompare(y.nombre, "es"));
   const [edit, setEdit] = useState({}); // clave -> { entrada, salida }
@@ -6253,19 +7090,143 @@ function NominaHorarios({ empleados, sucursal, lista, onGuardar, onCerrar }) {
                 <td style={nomTd}><HoraInput value={v.salida} onChange={(h) => poner(e, "salida", h)} style={campoH} /></td>
                 <td style={{ ...nomTd, fontWeight: 600 }}>{hrs === null ? "—" : fmtHoras(hrs)}</td>
                 <td style={nomTd} className="noprint">
-                  {cambiado ? <button onClick={() => guardar(e)} disabled={guardando === clave(e)} style={{ ...nomBtn(false), background: T.brand, color: "#fff", border: "none" }}>{guardando === clave(e) ? "Guardando…" : "Guardar"}</button>
-                    : (e.horaEntrada ? <span style={{ fontSize: 11.5, color: T.ok, fontWeight: 600 }}>Guardado</span> : <span style={{ fontSize: 11.5, color: T.muted }}>Sin horario</span>)}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                    {cambiado ? <button onClick={() => guardar(e)} disabled={guardando === clave(e)} style={{ ...nomBtn(false), background: T.brand, color: "#fff", border: "none" }}>{guardando === clave(e) ? "Guardando…" : "Guardar"}</button>
+                      : (e.horaEntrada ? <span style={{ fontSize: 11.5, color: T.ok, fontWeight: 600 }}>Guardado</span> : <span style={{ fontSize: 11.5, color: T.muted }}>Sin horario</span>)}
+                    {onEliminar && <button onClick={() => onEliminar(e)} title="Eliminar personal" aria-label="Eliminar personal" style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0, padding: 2 }}><Ico name="Trash2" size={15} color={T.bad} /></button>}
+                  </div>
                 </td>
               </tr>
             );
           })}
-          {personal.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cortes › Configuración › Registro asistencia.</td></tr>}
+          {personal.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cuenta › Configuración de cuenta › Horarios del personal.</td></tr>}
         </tbody>
       </table>
       <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
         Formato de 24 horas (por ejemplo 12:00 a 20:00). Con horario asignado, si la sucursal captura "Asistió" pero la entrada es más de {TOLERANCIA_MIN} minutos después de la hora, el sistema lo cuenta como Retardo; y en el detalle por día se ve la diferencia de horas contra lo que le tocaba. La sucursal no ve estos horarios.
       </div>
     </NominaTarjeta>
+  );
+}
+
+/* Pantalla "Configuración de cuenta": dos columnas, opciones en la primera. */
+function ConfigCuentaPantalla({ onCerrarSesion, onVolver, onAbrirHorarios }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Configuración de cuenta</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Cuenta</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <button onClick={onVolver} style={sx.back}>‹ Volver</button>
+        <ConfigCuentaContenido onAbrirHorarios={onAbrirHorarios} />
+      </main>
+    </div>
+  );
+}
+
+/* Alta de personal nuevo: nombre y dos apellidos. Lo que se da de alta aquí es lo que ven las
+   sucursales (responsables en Cortes y Registro asistencia); ellas ya no agregan nombres. */
+function AltaPersonal({ sucursales, sucursalInicial, onAlta }) {
+  const [abierto, setAbierto] = useState(false);
+  const vacio = { sucursal: sucursalInicial || "", nombre: "", apellidoPaterno: "", apellidoMaterno: "", puesto: "" };
+  const [f, setF] = useState(vacio);
+  const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const poner = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
+  const listo = f.sucursal && f.nombre.trim() && f.apellidoPaterno.trim() && f.apellidoMaterno.trim();
+  const guardar = async () => {
+    if (!listo || guardando) return;
+    setGuardando(true); setError("");
+    try {
+      const r = await apiFetch("/api/nomina/personal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, fechaAlta: fechaLocalISO() }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo dar de alta");
+      onAlta(d);
+      setF({ ...vacio, sucursal: f.sucursal });
+    } catch (err) { setError(err.message); } finally { setGuardando(false); }
+  };
+  if (!abierto) {
+    return (
+      <div className="noprint" style={{ marginBottom: 18 }}>
+        <button onClick={() => { setAbierto(true); setF((p) => ({ ...p, sucursal: p.sucursal || sucursalInicial || "" })); }} className="actbtn" style={{ ...sx.actbtn, background: T.brand }}>+ Agregar personal</button>
+      </div>
+    );
+  }
+  const campoSel = { ...sx.sel, width: "100%", boxSizing: "border-box" };
+  return (
+    <div className="noprint" style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: 16, marginBottom: 18, display: "grid", gap: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Agregar personal</div>
+        <button onClick={() => { setAbierto(false); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={17} color={T.muted} /></button>
+      </div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: -4 }}>Captura nombre y los dos apellidos. Aparecerá en Cortes (responsables) y en Registro asistencia de esa sucursal. Las sucursales no pueden agregar nombres por su cuenta.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+        <select value={f.sucursal} onChange={poner("sucursal")} className="sel" style={campoSel}>
+          <option value="">Sucursal…</option>
+          {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <input value={f.nombre} onChange={poner("nombre")} placeholder="Nombre(s)" className="sel" style={campoSel} />
+        <input value={f.apellidoPaterno} onChange={poner("apellidoPaterno")} placeholder="Apellido paterno" className="sel" style={campoSel} />
+        <input value={f.apellidoMaterno} onChange={poner("apellidoMaterno")} placeholder="Apellido materno" className="sel" style={campoSel} />
+        <input value={f.puesto} onChange={poner("puesto")} onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} placeholder="Puesto" className="sel" style={campoSel} />
+      </div>
+      {error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
+      <div><button onClick={guardar} disabled={!listo || guardando} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: listo && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Dar de alta"}</button></div>
+    </div>
+  );
+}
+
+/* Pantalla "Horarios del personal" (Cuenta › Configuración de cuenta). Solo RR. HH. y el dueño. */
+function HorariosPersonal({ onCerrarSesion, onVolver }) {
+  const [empleados, , setEmpleadosLocal] = usePersistedList("empleados_asistencia", []);
+  const [sucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
+  const [sucursal, setSucursal] = useState(TODAS_SUC);
+  const sucursales = useMemo(() => { const s = new Set(sucursalesAI); empleados.forEach((e) => e.sucursal && s.add(e.sucursal)); return [...s]; }, [sucursalesAI, empleados]);
+  const lista = sucursal === TODAS_SUC ? sucursales : [sucursal];
+  const guardar = async (suc, nombre, entrada, salida) => {
+    const r = await apiFetch("/api/nomina/horario", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sucursal: suc, nombre, entrada, salida }) });
+    const d = await r.json().catch(() => null);
+    if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo guardar el horario");
+    setEmpleadosLocal(d);
+  };
+  const eliminar = async (e) => {
+    if (!window.confirm(`¿Eliminar a ${e.nombre} de ${e.sucursal}? Dejará de aparecer en la sucursal; lo ya capturado en su historial se conserva.`)) return;
+    try {
+      const r = await apiFetch("/api/nomina/personal", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sucursal: e.sucursal, nombre: e.nombre }) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo eliminar");
+      setEmpleadosLocal(d);
+    } catch (err) { window.alert(err.message); }
+  };
+  const permitido = getRole() === "rrhh" || getUsername() === "administrador_ricardo";
+  if (!permitido) return null;
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Configuración de cuenta</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Horarios del personal</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <button onClick={onVolver} style={sx.back}>‹ Volver</button>
+        <div style={sx.h1row}><h1 style={sx.h1}>Horarios del personal</h1><span style={{ fontSize: 12, color: T.muted }}>hora de entrada y salida asignada a cada empleado</span></div>
+        <div className="noprint" style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Sucursal</div>
+          <select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="sel" style={{ ...sx.sel, width: "auto", minWidth: 220 }}>
+            <option value={TODAS_SUC}>Todas las sucursales</option>
+            {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <AltaPersonal sucursales={sucursales} sucursalInicial={sucursal === TODAS_SUC ? "" : sucursal} onAlta={setEmpleadosLocal} />
+        <NominaHorarios empleados={empleados} sucursal={sucursal} lista={lista} onGuardar={guardar} onEliminar={eliminar} onCerrar={onVolver} />
+      </main>
+    </div>
   );
 }
 

@@ -8,11 +8,14 @@
 // abriera las herramientas del navegador no podría tocar nada ajeno.
 import { useState, useRef, useEffect } from "react";
 import HoraInput, { enterAvanza } from "./HoraInput.jsx";
+import { useSidebarOculta, BotonMostrarBarra } from "./SidebarToggle.jsx";
+import { ChevronsLeft } from "lucide-react";
 import { ShieldCheck, Receipt, UserMinus, Smartphone, ChevronLeft, Boxes, Plus, Trash2, Download, ChevronDown, Printer, FileText, Sheet, Check, X, ClipboardList } from "lucide-react";
 import * as XLSX from "xlsx";
 import { usePersistedCollection, usePersistedList, agregarValorLista } from "./hooks/persistence";
 import { getSucursal, clearSession, cerrarSesionServidor, apiFetch } from "./auth";
 import CuentaBarra from "./CuentaBarra.jsx";
+import ConfigCuentaContenido from "./ConfigCuenta.jsx";
 import { limpiarPrefsLocal } from "./preferences";
 import { ESTATUS, ESTATUS_CON_HORAS, ESTATUS_COLOR, idAsistencia, fechaLocalISO, horasEntre, horasDeRegistro, fmtHoras } from "./asistenciaUtil";
 
@@ -231,22 +234,21 @@ export default function SucursalApp() {
   const [conteos, setConteos, loadedConteos] = usePersistedCollection("conteos_diarios_inventario");
   const [asistencias, setAsistencias, loadedAsistencia] = usePersistedCollection("asistencia_sucursal");
   const [empleados, empleadosListos] = useListaSoloLectura("empleados_asistencia");
-  const [responsablesAI, , setResponsablesLocal] = usePersistedList("responsables_sucursal", []);
-  const [vista, setVista] = useState("cortes");
-
-  // El personal de sucursal puede agregar su nombre al vuelo desde la
-  // captura de Cortes (sin entrar a Gestión) — se guarda en el catálogo
-  // compartido vía la ruta de solo-agregar, y se refleja en pantalla al
-  // instante.
-  const agregarResponsable = async (nombre) => {
-    const lista = await agregarValorLista("responsables_sucursal", nombre);
-    setResponsablesLocal(lista);
-    return lista;
-  };
+  // Los responsables de Cortes son el personal de la sucursal que dan de alta
+  // oficina (Cuenta › Configuración de cuenta); la sucursal no agrega nombres.
+  const responsablesAI = [...new Set(empleados.map((e) => e.nombre).filter(Boolean))].sort((a, b) => a.localeCompare(b, "es"));
+  const [vista, setVistaBase] = useState("cortes");
+  const [verConfig, setVerConfig] = useState(false); // Cuenta › Configuración de cuenta
+  const setVista = (v) => { setVerConfig(false); setVistaBase(v); };
+  useEffect(() => {
+    const abrir = () => setVerConfig(true);
+    window.addEventListener("fy-abrir-config", abrir);
+    return () => window.removeEventListener("fy-abrir-config", abrir);
+  }, []);
 
   const enCortes = VISTAS_CORTES.includes(vista);
   const enAsistencia = VISTAS_ASISTENCIA.includes(vista);
-  const loaded = enCortes ? loadedCortes : enAsistencia ? loadedAsistencia && empleadosListos : loadedProductos && loadedConteos;
+  const loaded = enCortes ? loadedCortes && empleadosListos : enAsistencia ? loadedAsistencia && empleadosListos : loadedProductos && loadedConteos;
 
   return (
     <div id="fy-app-shell" style={{ minHeight: "100vh", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
@@ -256,12 +258,14 @@ export default function SucursalApp() {
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
         <CuentaBarra onCerrarSesion={() => { cerrarSesionServidor(); clearSession(); limpiarPrefsLocal(); window.location.reload(); }} />
         <div style={{ maxWidth: 1400, margin: "0 auto", padding: "28px 36px 64px", width: "100%", boxSizing: "border-box" }}>
-          {!loaded ? (
+          {verConfig ? (
+            <ConfigCuentaContenido />
+          ) : !loaded ? (
             <div style={{ fontSize: 13, color: T.muted, marginTop: 40 }}>Cargando…</div>
           ) : vista === "cortes" ? (
             <CortesRegistro sucursal={sucursal} items={items} onNuevo={() => setVista("cortes-captura")} />
           ) : vista === "cortes-captura" ? (
-            <CortesCaptura sucursal={sucursal} items={items} setItems={setItems} responsablesAI={responsablesAI} onAgregarResponsable={agregarResponsable} onVolver={() => setVista("cortes")} />
+            <CortesCaptura sucursal={sucursal} items={items} setItems={setItems} responsablesAI={responsablesAI} onVolver={() => setVista("cortes")} />
           ) : vista === "asistencia" ? (
             <AsistenciaRegistro sucursal={sucursal} items={asistencias} empleados={empleados} onNuevo={() => setVista("asistencia-captura")} />
           ) : vista === "asistencia-captura" ? (
@@ -277,17 +281,43 @@ export default function SucursalApp() {
   );
 }
 
+// Logo de la barra: gota blanca en cuadro verde (igual que en Gestión).
+function LogoCuadro() {
+  return (
+    <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+      <img className="fy-logo-rail" src="/assets/logo-rail.png" alt="Frutal Yogurt" style={{ height: 26, width: "auto", display: "block" }} />
+    </div>
+  );
+}
+
 // Barra oscura con el logo, "Sucursales" y los dos apartados disponibles:
 // "Cortes" e "Inventarios".
 function Sidebar({ activa, onIrACortes, onIrAInventarios, onIrAAsistencia }) {
+  const [oculta, setOculta] = useSidebarOculta();
   const enCortes = VISTAS_CORTES.includes(activa);
   const enAsistencia = VISTAS_ASISTENCIA.includes(activa);
   const enInventarios = !enCortes && !enAsistencia;
+  // Barra recogida: solo los íconos de cada apartado y el botón » para volver a abrirla.
+  if (oculta) {
+    const items = [[onIrACortes, enCortes, ShieldCheck, "Cortes"], [onIrAInventarios, enInventarios, Boxes, "Inventarios"], [onIrAAsistencia, enAsistencia, ClipboardList, "Registro asistencia"]];
+    return (
+      <aside className="noprint" style={{ width: 64, flexShrink: 0, background: T.ink, padding: "20px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 8, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
+        <LogoCuadro />
+        <BotonMostrarBarra onMostrar={() => setOculta(false)} />
+        {items.map(([fn, activo, Icono, titulo]) => (
+          <button key={titulo} onClick={fn} title={titulo} aria-label={titulo} style={{ width: 42, height: 42, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 11, border: "none", outline: "none", cursor: "pointer", background: activo ? T.brand : "transparent", color: "#fff", padding: 0 }}>
+            <Icono size={19} />
+          </button>
+        ))}
+      </aside>
+    );
+  }
   return (
     <aside className="noprint" style={{ width: 210, flexShrink: 0, background: T.ink, color: "#fff", padding: "20px 14px", display: "flex", flexDirection: "column", position: "sticky", top: 0, height: "100vh", overflowY: "auto", boxSizing: "border-box" }}>
       <div style={{ padding: "2px 8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
-        <img src={LOGO} alt="Frutal Yogurt" style={{ height: 36, width: "auto", display: "block" }} />
+        <LogoCuadro />
         <span style={{ fontSize: 10.5, fontWeight: 700, color: T.brand, background: "rgba(15,110,102,.22)", borderRadius: 99, padding: "3px 9px" }}>Sucursales</span>
+        <button onClick={() => setOculta(true)} title="Ocultar barra lateral" aria-label="Ocultar barra lateral" style={{ marginLeft: "auto", width: 30, height: 30, display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, border: "1px solid #E1E5EA", background: "#fff", cursor: "pointer", padding: 0 }}><ChevronsLeft size={15} color="#5B6370" /></button>
       </div>
       <div style={{ display: "grid", gap: 3 }}>
         <button
@@ -464,7 +494,7 @@ function CortesDetalle({ sucursal, fecha, items, onCerrar }) {
 // Nueva captura: se elige la fecha y quién captura una sola vez, y de ahí
 // se pueden agregar cuantos gastos, descuentos y ventas por app hagan
 // falta — todo junto, en la misma pantalla.
-function CortesCaptura({ sucursal, items, setItems, responsablesAI, onAgregarResponsable, onVolver }) {
+function CortesCaptura({ sucursal, items, setItems, responsablesAI, onVolver }) {
   const [paso, setPaso] = useState("captura"); // captura | resumen
   const [fecha, setFecha] = useState(hoyISO());
   const [capturadoPor, setCapturadoPor] = useState("");
@@ -472,34 +502,8 @@ function CortesCaptura({ sucursal, items, setItems, responsablesAI, onAgregarRes
   const [descuentos, setDescuentos] = useState([]);
   const [ventasApp, setVentasApp] = useState([]);
 
-  const [agregandoNombre, setAgregandoNombre] = useState(false);
-  const [nuevoNombre, setNuevoNombre] = useState("");
-  const [guardandoNombre, setGuardandoNombre] = useState(false);
-  const [errorNombre, setErrorNombre] = useState("");
 
   const hayResponsables = responsablesAI.length > 0;
-
-  const confirmarNuevoNombre = async () => {
-    const n = nuevoNombre.trim();
-    if (!n || guardandoNombre) return;
-    setGuardandoNombre(true);
-    setErrorNombre("");
-    try {
-      await onAgregarResponsable(n);
-      setCapturadoPor(n);
-      setNuevoNombre("");
-      setAgregandoNombre(false);
-    } catch (err) {
-      setErrorNombre(err.message || "No se pudo agregar");
-    } finally {
-      setGuardandoNombre(false);
-    }
-  };
-  const cancelarNuevoNombre = () => {
-    setAgregandoNombre(false);
-    setNuevoNombre("");
-    setErrorNombre("");
-  };
 
   const agregarGasto = () => setGastos((prev) => [...prev, { id: Date.now() + Math.random(), monto: "", responsable: "", descripcion: "", detalle: "" }]);
   const actualizarGasto = (id, campo, val) => setGastos((prev) => prev.map((g) => (g.id === id ? { ...g, [campo]: val } : g)));
@@ -606,37 +610,11 @@ function CortesCaptura({ sucursal, items, setItems, responsablesAI, onAgregarRes
               <option value="">Selecciona…</option>
               {responsablesAI.map((n) => <option key={n} value={n}>{n}</option>)}
             </select>
-            {!agregandoNombre ? (
-              <button onClick={() => setAgregandoNombre(true)} style={{ background: "none", border: "none", color: T.brand, fontSize: 11, fontWeight: 600, cursor: "pointer", padding: 0, marginTop: 5, display: "block" }}>
-                + agregar nombre
-              </button>
-            ) : (
-              <div style={{ marginTop: 5 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <input
-                    autoFocus
-                    value={nuevoNombre}
-                    onChange={(e) => setNuevoNombre(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") confirmarNuevoNombre(); if (e.key === "Escape") cancelarNuevoNombre(); }}
-                    placeholder="Ej: Juan Ramos"
-                    disabled={guardandoNombre}
-                    style={{ border: "none", borderBottom: `1px solid ${T.line}`, background: "transparent", fontSize: 12.5, color: T.ink, padding: "2px 1px", width: 130, outline: "none" }}
-                  />
-                  <button onClick={confirmarNuevoNombre} disabled={guardandoNombre || !nuevoNombre.trim()} style={{ background: "none", border: "none", color: T.brand, cursor: "pointer", padding: 0, display: "flex", opacity: guardandoNombre || !nuevoNombre.trim() ? 0.4 : 1 }}>
-                    <Check size={15} />
-                  </button>
-                  <button onClick={cancelarNuevoNombre} disabled={guardandoNombre} style={{ background: "none", border: "none", color: T.muted, cursor: "pointer", padding: 0, display: "flex" }}>
-                    <X size={15} />
-                  </button>
-                </div>
-                {errorNombre && <div style={{ fontSize: 10.5, color: T.bad, marginTop: 3 }}>{errorNombre}</div>}
-              </div>
-            )}
           </div>
         </div>
       </div>
       {!hayResponsables && (
-        <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 22 }}>Todavía no hay responsables — pídele a tu administrador que los agregue desde Gestión › Cortes › Configuración.</div>
+        <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 22 }}>Todavía no hay responsables — pídele a tu administrador que dé de alta al personal de tu sucursal.</div>
       )}
 
       <div style={{ display: "grid", gap: 24 }}>
@@ -1207,6 +1185,7 @@ function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
     { titulo: "Puesto", valor: (f) => f.puesto || "" },
     { titulo: "Entrada", valor: (f) => f.entrada || "" },
     { titulo: "Salida", valor: (f) => f.salida || "" },
+    { titulo: "Estatus", valor: (f) => nombreEstatus(f.estatus) },
     { titulo: "Horas", valor: (f) => fmtHoras(horasDeRegistro(f)) },
   ];
   const filasExport = [...items].sort((a, b) => a.fecha.localeCompare(b.fecha)).flatMap((d) => d.registros.map((r) => ({ ...r, fecha: d.fecha })));
@@ -1266,7 +1245,16 @@ function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
   );
 }
 
-function TablaAsistencia({ registros }) {
+// "Asistió" se muestra como "Asistencia".
+const nombreEstatus = (e) => (e === "Asistió" ? "Asistencia" : e || "—");
+function EtiquetaEstatus2({ estatus }) {
+  const c = ESTATUS_COLOR[estatus];
+  if (!c) return <span style={{ color: T.muted }}>—</span>;
+  return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: c.color, background: c.fondo, whiteSpace: "nowrap" }}>{nombreEstatus(estatus)}</span>;
+}
+
+// `auto` (opcional): { empleado: "Asistió" | "Retardo" } calculado por el servidor para la revisión.
+function TablaAsistencia({ registros, auto }) {
   const total = registros.reduce((s, r) => s + horasDeRegistro(r), 0);
   return (
     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -1276,6 +1264,7 @@ function TablaAsistencia({ registros }) {
           <th style={thAs}>Puesto</th>
           <th style={{ ...thAs, textAlign: "center" }}>Entrada</th>
           <th style={{ ...thAs, textAlign: "center" }}>Salida</th>
+          <th style={{ ...thAs, textAlign: "center" }}>Estatus</th>
           <th style={{ ...thAs, textAlign: "right" }}>Horas</th>
         </tr>
       </thead>
@@ -1284,13 +1273,14 @@ function TablaAsistencia({ registros }) {
           <tr key={r.empleado}>
             <td style={tdAs}>{r.empleado}</td>
             <td style={{ ...tdAs, color: T.muted }}>{r.puesto || "—"}</td>
-            <td style={{ ...tdAs, textAlign: "center" }}>{r.entrada || <span style={{ color: T.muted }}>Sin hora</span>}</td>
+            <td style={{ ...tdAs, textAlign: "center" }}>{r.entrada || <span style={{ color: T.muted }}>—</span>}</td>
             <td style={{ ...tdAs, textAlign: "center" }}>{r.salida || "—"}</td>
+            <td style={{ ...tdAs, textAlign: "center" }}><EtiquetaEstatus2 estatus={(auto && auto[r.empleado] && ESTATUS_CON_HORAS.has(r.estatus)) ? auto[r.empleado] : r.estatus} /></td>
             <td style={{ ...tdAs, textAlign: "right", fontWeight: 600 }}>{fmtHoras(horasDeRegistro(r))}</td>
           </tr>
         ))}
         <tr>
-          <td colSpan={4} style={{ ...tdAs, fontWeight: 700, background: T.paper }}>Total de horas</td>
+          <td colSpan={5} style={{ ...tdAs, fontWeight: 700, background: T.paper }}>Total de horas</td>
           <td style={{ ...tdAs, textAlign: "right", fontWeight: 700, background: T.paper }}>{fmtHoras(total)}</td>
         </tr>
       </tbody>
@@ -1305,6 +1295,7 @@ function AsistenciaDetalle({ sucursal, doc, onCerrar }) {
     { titulo: "Puesto", valor: (f) => f.puesto || "" },
     { titulo: "Entrada", valor: (f) => f.entrada || "" },
     { titulo: "Salida", valor: (f) => f.salida || "" },
+    { titulo: "Estatus", valor: (f) => nombreEstatus(f.estatus) },
     { titulo: "Horas", valor: (f) => fmtHoras(horasDeRegistro(f)) },
   ];
   return (
@@ -1334,24 +1325,35 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
   const ordenados = [...empleados].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
 
   const yaCapturada = items.some((d) => d.fecha === fecha);
-  const poner = (nombre, cambios) => setValores((prev) => ({ ...prev, [nombre]: { entrada: "", salida: "", ...(prev[nombre] || {}), ...cambios } }));
+  const poner = (nombre, cambios) => setValores((prev) => ({ ...prev, [nombre]: { entrada: "", salida: "", manual: "", ...(prev[nombre] || {}), ...cambios } }));
+  const [auto, setAuto] = useState({}); // Asistió/Retardo calculado por el servidor para la revisión
 
-  // La sucursal solo captura hora de entrada y salida. Quien no lleve horas queda
-  // "sin hora" y administración le pone Falta, Descanso o Vacaciones. Si se
-  // captura una hora, debe llevar las dos.
+  // Cada persona lleva o un estatus manual (Falta, Descanso, Permiso, Vacaciones),
+  // que bloquea las horas, o hora de entrada y de salida; con horas el sistema
+  // pone Asistencia o Retardo según el horario.
   const faltaDe = (e) => {
     const v = valores[e.nombre] || {};
-    return (v.entrada && !v.salida) || (!v.entrada && v.salida) ? "horas" : null;
+    if (v.manual) return null;
+    if (v.entrada && v.salida) return null;
+    return "horas";
   };
   const pendientes = ordenados.filter((e) => faltaDe(e));
-  const conHora = ordenados.filter((e) => { const v = valores[e.nombre] || {}; return v.entrada && v.salida; }).length;
-  const listo = fecha && !yaCapturada && ordenados.length > 0 && pendientes.length === 0 && conHora > 0;
+  const listo = fecha && !yaCapturada && ordenados.length > 0 && pendientes.length === 0;
 
   const construirRegistros = () => ordenados.map((e) => {
     const v = valores[e.nombre] || {};
-    const conHoras = !!(v.entrada && v.salida);
-    return { empleado: e.nombre, puesto: e.puesto || "", estatus: conHoras ? "Asistió" : "Pendiente", entrada: conHoras ? v.entrada : "", salida: conHoras ? v.salida : "" };
+    if (v.manual) return { empleado: e.nombre, puesto: e.puesto || "", estatus: v.manual, entrada: "", salida: "" };
+    return { empleado: e.nombre, puesto: e.puesto || "", estatus: "Asistió", entrada: v.entrada || "", salida: v.salida || "" };
   });
+
+  const irAResumen = async () => {
+    if (!listo) return;
+    try {
+      const r = await apiFetch("/api/asistencia/previa", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ registros: construirRegistros() }) });
+      setAuto(r.ok ? await r.json() : {});
+    } catch { setAuto({}); }
+    setPaso("resumen");
+  };
 
   const finalizar = () => {
     if (!listo) return;
@@ -1374,7 +1376,7 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
             <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong style={{ color: T.ink }}>{fecha}</strong></div>
             <div><div style={{ color: T.muted, fontSize: 11 }}>Sucursal</div><strong style={{ color: T.ink }}>{sucursal}</strong></div>
           </div>
-          <TablaAsistencia registros={registros} />
+          <TablaAsistencia registros={registros} auto={auto} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
             <button onClick={() => setPaso("captura")} style={{ border: `1px solid ${T.line}`, background: "#fff", color: T.ink, fontSize: 12.5, fontWeight: 600, padding: "9px 18px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>‹ Atrás</button>
             <button onClick={finalizar} style={{ border: "none", background: T.ink, color: "#fff", fontSize: 12.5, fontWeight: 600, padding: "9px 18px", borderRadius: 9, cursor: "pointer", fontFamily: "inherit" }}>Finalizar</button>
@@ -1407,20 +1409,32 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
       )}
 
       <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 14, padding: 20, display: "grid", gap: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.5fr", gap: 8, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 10px" }}>
-          <div>Empleado</div><div>Hora de entrada</div><div>Hora de salida</div><div style={{ textAlign: "right" }}>Horas</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 0.8fr 0.8fr 0.5fr", gap: 8, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 10px" }}>
+          <div>Empleado</div><div>Estatus</div><div>Hora de entrada</div><div>Hora de salida</div><div style={{ textAlign: "right" }}>Horas</div>
         </div>
         {ordenados.map((e) => {
           const v = valores[e.nombre] || {};
           const conHoras = !!(v.entrada && v.salida);
+          const bloqueado = !!v.manual;
+          const estiloHora = { ...campo, background: bloqueado ? T.paper : "#fff", padding: "9px 10px", opacity: bloqueado ? 0.5 : 1 };
           return (
-            <div key={e.nombre} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.8fr 0.8fr 0.5fr", gap: 8, alignItems: "center", background: T.paper, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 10px" }}>
+            <div key={e.nombre} style={{ display: "grid", gridTemplateColumns: "1.6fr 0.9fr 0.8fr 0.8fr 0.5fr", gap: 8, alignItems: "center", background: T.paper, border: `1px solid ${T.line}`, borderRadius: 10, padding: "8px 10px" }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{e.nombre}</div>
                 {e.puesto && <div style={{ fontSize: 11, color: T.muted }}>{e.puesto}</div>}
               </div>
-              <HoraInput value={v.entrada || ""} onChange={(h) => poner(e.nombre, { entrada: h })} style={{ ...campo, background: "#fff", padding: "9px 10px" }} />
-              <HoraInput value={v.salida || ""} onChange={(h) => poner(e.nombre, { salida: h })} style={{ ...campo, background: "#fff", padding: "9px 10px" }} />
+              <select
+                value={v.manual || ""}
+                onChange={(ev) => poner(e.nombre, ev.target.value ? { manual: ev.target.value, entrada: "", salida: "" } : { manual: "" })}
+                onKeyDown={enterAvanza}
+                data-asist-campo="1"
+                style={{ ...campo, background: "#fff", padding: "9px 10px" }}
+              >
+                <option value="">Con horario</option>
+                {["Falta", "Descanso", "Permiso", "Vacaciones"].map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+              <HoraInput value={v.entrada || ""} disabled={bloqueado} onChange={(h) => poner(e.nombre, { entrada: h })} style={estiloHora} />
+              <HoraInput value={v.salida || ""} disabled={bloqueado} onChange={(h) => poner(e.nombre, { salida: h })} style={estiloHora} />
               <div style={{ textAlign: "right", fontSize: 13, fontWeight: 600, color: T.ink }}>{conHoras ? fmtHoras(horasEntre(v.entrada, v.salida)) : "—"}</div>
             </div>
           );
@@ -1428,13 +1442,13 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
         {ordenados.length === 0 && <div style={{ fontSize: 12.5, color: T.muted }}>No hay personal dado de alta — pídele a tu administrador que lo agregue.</div>}
       </div>
       {pendientes.length > 0 && ordenados.length > 0 && (
-        <div style={{ fontSize: 11.5, color: T.bad, marginTop: 10 }}>Falta la hora de entrada o de salida de: {pendientes.map((e) => e.nombre).join(", ")}.</div>
+        <div style={{ fontSize: 11.5, color: T.bad, marginTop: 10 }}>Falta la hora de entrada y salida, o elegir un estatus, de: {pendientes.map((e) => e.nombre).join(", ")}.</div>
       )}
-      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 10 }}>Captura la hora real de entrada y salida de quien trabajó. Si alguien no vino, déjalo sin hora; administración le asigna falta, descanso o vacaciones.</div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 10 }}>Captura la hora real de entrada y salida de quien trabajó; el sistema pone Asistencia o Retardo. Si alguien no trabajó, elige Falta, Descanso, Permiso o Vacaciones y las horas se bloquean.</div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 24 }}>
         <button onClick={onVolver} style={{ border: `1px solid ${T.line}`, background: "#fff", color: T.ink, fontSize: 13.5, fontWeight: 600, padding: "11px 28px", borderRadius: 10, cursor: "pointer", fontFamily: "inherit" }}>Cancelar</button>
-        <button onClick={() => listo && setPaso("resumen")} disabled={!listo} style={{ ...boton(T.brand, "#fff"), opacity: listo ? 1 : 0.5, cursor: listo ? "pointer" : "default", padding: "11px 28px" }}>Siguiente</button>
+        <button onClick={irAResumen} disabled={!listo} style={{ ...boton(T.brand, "#fff"), opacity: listo ? 1 : 0.5, cursor: listo ? "pointer" : "default", padding: "11px 28px" }}>Siguiente</button>
       </div>
     </>
   );

@@ -2,7 +2,7 @@ services:
   - type: web
     name: frutal-yogurt-plataforma
     env: node
-    plan: free
+    plan: starter
     buildCommand: npm run install:all && npm run build
     startCommand: npm start
     envVars:

@@ -71,17 +71,19 @@ const COLLECTIONS = new Set([
   "recepciones", "conteos", "borradores_conteo", "salidas", "cuadres_auditoria",
   ...Object.keys(SUCURSAL_PERMISOS),
   "entradas_inventario", "ajustes_inventario",
+  "incidencias_conciliacion", // Control interno › Conciliación: causa / acción / estado por sucursal y día
+  "incidencias_conteo",       // Control interno › Conteo de Cortes: incidencias por periodo y control
 ]);
-const LISTS = new Set(["sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia"]);
+const LISTS = new Set(["sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia", "ruta_cortes"]);
 // Listas que un usuario "sucursal" puede LEER (nunca reemplazar/borrar toda
 // la lista — eso lo hace el admin desde Gestión). Por ejemplo el catálogo de
 // responsables que aparece como selector al capturar un corte.
 const SUCURSAL_LISTS_RO = new Set(["responsables_sucursal", "empleados_asistencia"]);
 // Datos de nómina: solo admin (y la propia sucursal para lo suyo). Los roles
 // "inventarios" y "auditor" NO los ven, aunque sí lean el resto.
-const SOLO_ADMIN_Y_SUCURSAL = new Set(["asistencia_sucursal", "empleados_asistencia"]);
+const SOLO_ADMIN_Y_SUCURSAL = new Set(["asistencia_sucursal", "empleados_asistencia", "incidencias_conciliacion", "incidencias_conteo"]);
 // Estatus válidos de asistencia — mismos que el menú de la hoja de Excel.
-const ESTATUS_ASISTENCIA = new Set(["Asistió", "Retardo", "Falta", "Descanso", "Vacaciones", "Pendiente"]);
+const ESTATUS_ASISTENCIA = new Set(["Asistió", "Retardo", "Falta", "Descanso", "Vacaciones", "Permiso", "Pendiente"]);
 const ESTATUS_CON_HORAS = new Set(["Asistió", "Retardo"]);
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -89,7 +91,7 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 // nuevo (nunca quitar ni reemplazar la lista completa) — usan la ruta
 // dedicada POST /api/lists/:name/agregar, no el PUT normal (que sigue
 // siendo solo-admin).
-const SUCURSAL_LISTS_AGREGAR = new Set(["responsables_sucursal"]);
+const SUCURSAL_LISTS_AGREGAR = new Set([]); // las sucursales ya no agregan nombres: el personal se da de alta en Configuración de cuenta (admin/rrhh)
 
 function checkCollection(req, res, next) {
   if (!COLLECTIONS.has(req.params.name)) return res.status(404).json({ error: "Colección no reconocida" });
@@ -260,26 +262,58 @@ app.put("/api/auth/preferencias", requireAuth, asyncRoute(async (req, res) => {
 
 // Valida un día de asistencia: un solo documento por sucursal + fecha, con un
 // renglón por empleado (estatus válido; Asistió/Retardo traen entrada y salida).
-function validarAsistencia(item, sucursal) {
+const ESTATUS_MANUALES_SUCURSAL = new Set(["Falta", "Descanso", "Permiso", "Vacaciones"]);
+const TOLERANCIA_RETARDO_MIN = 10;
+const aMinutos = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+// "Asistió" o "Retardo" según la hora de entrada contra el horario del empleado.
+// Retardo = llegó tarde o salió antes del horario (más de la tolerancia).
+function estatusPorHorario(emp, entrada, salida) {
+  if (!emp || !emp.horaEntrada || !HORA_RE.test(emp.horaEntrada) || !HORA_RE.test(entrada || "")) return "Asistió";
+  const dif = (a, b) => { let d = aMinutos(a) - aMinutos(b); if (d > 720) d -= 1440; else if (d < -720) d += 1440; return d; };
+  if (dif(entrada, emp.horaEntrada) > TOLERANCIA_RETARDO_MIN) return "Retardo";
+  if (emp.horaSalida && HORA_RE.test(emp.horaSalida) && HORA_RE.test(salida || "") && dif(emp.horaSalida, salida) > TOLERANCIA_RETARDO_MIN) return "Retardo";
+  return "Asistió";
+}
+async function empleadosDeSucursal(sucursal) {
+  const data = await getList("empleados_asistencia");
+  return (Array.isArray(data) ? data : []).filter((e) => e && e.sucursal === sucursal);
+}
+
+// Valida un día de asistencia: un solo documento por sucursal + fecha, con un
+// renglón por empleado. La sucursal captura horas (el sistema pone Asistió o
+// Retardo según el horario) o un estatus manual (Falta, Descanso, Permiso,
+// Vacaciones) sin horas.
+async function validarAsistencia(item, sucursal) {
   if (typeof item.fecha !== "string" || !FECHA_RE.test(item.fecha)) return "Fecha inválida";
   if (item.id !== `asist|${sucursal}|${item.fecha}`) return "Identificador inválido";
   if (!Array.isArray(item.registros) || item.registros.length === 0 || item.registros.length > 200) return "No hay registros que guardar";
+  const emps = await empleadosDeSucursal(sucursal);
   const vistos = new Set();
   for (const r of item.registros) {
     if (!r || typeof r.empleado !== "string" || !r.empleado.trim() || r.empleado.length > 120) return "Empleado inválido";
     if (vistos.has(r.empleado)) return "Empleado repetido";
     vistos.add(r.empleado);
     if (!ESTATUS_ASISTENCIA.has(r.estatus)) return `Estatus inválido para ${r.empleado}`;
-    // La sucursal solo registra horas: con horas es "Asistió" (el sistema compara con el horario) y sin horas "Pendiente" (lo clasifica administración).
-    if (r.estatus !== "Asistió" && r.estatus !== "Pendiente") return `Estatus no permitido para ${r.empleado}`;
-    if (ESTATUS_CON_HORAS.has(r.estatus)) {
+    if (r.estatus !== "Asistió" && r.estatus !== "Retardo" && r.estatus !== "Pendiente" && !ESTATUS_MANUALES_SUCURSAL.has(r.estatus)) return `Estatus no permitido para ${r.empleado}`;
+    if (r.estatus === "Asistió" || r.estatus === "Retardo") {
       if (!HORA_RE.test(r.entrada || "") || !HORA_RE.test(r.salida || "")) return `Falta hora de entrada o salida de ${r.empleado}`;
+      r.estatus = estatusPorHorario(emps.find((e) => e.nombre === r.empleado), r.entrada, r.salida);
     } else {
       r.entrada = ""; r.salida = "";
     }
   }
   return null;
 }
+
+// Vista previa para la sucursal: qué estatus (Asistió/Retardo) saldría con las horas capturadas.
+app.post("/api/asistencia/previa", requireAuth, asyncRoute(async (req, res) => {
+  if (req.user.role !== "sucursal") return res.status(403).json({ error: "Solo sucursales" });
+  const regs = Array.isArray(req.body && req.body.registros) ? req.body.registros.slice(0, 200) : [];
+  const emps = await empleadosDeSucursal(req.user.sucursal);
+  const out = {};
+  regs.forEach((r) => { if (r && typeof r.empleado === "string") out[r.empleado] = estatusPorHorario(emps.find((e) => e.nombre === r.empleado), r.entrada, r.salida); });
+  res.json(out);
+}));
 
 // ---- Colecciones (arreglos de objetos con id) ----
 // requireAuth primero (¿hay sesión?), luego checkCollection (¿existe?), luego
@@ -310,7 +344,7 @@ app.post("/api/collections/:name", requireAuth, checkCollection, checkCollection
     // "co" = solo crear: nunca se puede sobrescribir algo que ya existe.
     if (await getItem(req.params.name, item.id)) return res.status(409).json({ error: "Eso ya fue capturado — pídele a tu administrador que lo corrija." });
     if (req.params.name === "asistencia_sucursal") {
-      const err = validarAsistencia(item, req.user.sucursal);
+      const err = await validarAsistencia(item, req.user.sucursal);
       if (err) return res.status(400).json({ error: err });
     }
   }
@@ -459,6 +493,32 @@ app.put("/api/nomina/baja", requireAuth, requireAdminORrhh, asyncRoute(async (re
   if (!lista) return res.status(404).json({ error: "No se encontró a la persona" });
   res.json(lista);
 }));
+// Alta de personal nuevo (nombre y dos apellidos). Solo admin y rrhh: las sucursales ya no
+// agregan nombres; lo que se da de alta aquí aparece en Cortes (responsables) y en Registro asistencia.
+app.post("/api/nomina/personal", requireAuth, requireAdminORrhh, asyncRoute(async (req, res) => {
+  const limpio = (v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "");
+  const { sucursal } = req.body || {};
+  const nombre = limpio(req.body?.nombre), apPaterno = limpio(req.body?.apellidoPaterno), apMaterno = limpio(req.body?.apellidoMaterno), puesto = limpio(req.body?.puesto);
+  if (typeof sucursal !== "string" || !sucursal.trim()) return res.status(400).json({ error: "Elige la sucursal" });
+  if (!nombre || !apPaterno || !apMaterno) return res.status(400).json({ error: "Captura el nombre y los dos apellidos" });
+  const completo = `${nombre} ${apPaterno} ${apMaterno}`;
+  if (completo.length > 120 || puesto.length > 80) return res.status(400).json({ error: "Texto demasiado largo" });
+  const lista = Array.isArray(await getList("empleados_asistencia")) ? await getList("empleados_asistencia") : [];
+  if (lista.some((e) => e && e.sucursal === sucursal && !e.fechaBaja && (e.nombre || "").toLowerCase() === completo.toLowerCase())) return res.status(409).json({ error: "Esa persona ya está dada de alta en esa sucursal" });
+  lista.push({ nombre: completo, puesto, sucursal, fechaAlta: typeof req.body?.fechaAlta === "string" && FECHA_RE.test(req.body.fechaAlta) ? req.body.fechaAlta : new Date().toISOString().slice(0, 10) });
+  await setList("empleados_asistencia", lista);
+  res.status(201).json(lista);
+}));
+// Eliminar personal de la lista (su historial de asistencia ya capturado se conserva).
+app.delete("/api/nomina/personal", requireAuth, requireAdminORrhh, asyncRoute(async (req, res) => {
+  const { sucursal, nombre } = req.body || {};
+  if (typeof sucursal !== "string" || typeof nombre !== "string") return res.status(400).json({ error: "Faltan datos" });
+  const lista = Array.isArray(await getList("empleados_asistencia")) ? await getList("empleados_asistencia") : [];
+  const nueva = lista.filter((e) => !(e && e.sucursal === sucursal && e.nombre === nombre));
+  if (nueva.length === lista.length) return res.status(404).json({ error: "No se encontró a la persona" });
+  await setList("empleados_asistencia", nueva);
+  res.json(nueva);
+}));
 // Horario que le toca a cada persona (fijo, todos los días). Lo ponen admin y rrhh en
 // Nómina sucursales; la sucursal no lo ve, solo captura la hora real y el sistema compara.
 app.put("/api/nomina/horario", requireAuth, requireAdminORrhh, asyncRoute(async (req, res) => {
@@ -488,6 +548,42 @@ app.put("/api/nomina/estatus-dia", requireAuth, requireAdminORrhh, asyncRoute(as
   r.estatus = estatus;
   await upsertItem("asistencia_sucursal", id, doc);
   res.json(doc);
+}));
+// Corregir o eliminar una captura de asistencia de una sucursal (Configuración de cuenta ›
+// Registro de asistencia). Solo Recursos Humanos (Cesar y Yessica) y administrador_ricardo.
+function requireRrhhODueno(req, res, next) {
+  if (req.user?.role === "rrhh" || req.user?.username === "administrador_ricardo") return next();
+  return res.status(403).json({ error: "No tienes permiso para esto" });
+}
+app.put("/api/nomina/asistencia", requireAuth, requireRrhhODueno, asyncRoute(async (req, res) => {
+  const { sucursal, fecha, registros } = req.body || {};
+  if (typeof sucursal !== "string" || typeof fecha !== "string" || !FECHA_RE.test(fecha) || !Array.isArray(registros)) return res.status(400).json({ error: "Faltan datos" });
+  const id = `asist|${sucursal}|${fecha}`;
+  const doc = await getItem("asistencia_sucursal", id);
+  if (!doc || !Array.isArray(doc.registros)) return res.status(404).json({ error: "No se encontró ese día" });
+  const nuevos = [];
+  for (const orig of doc.registros) {
+    const r = registros.find((x) => x && x.empleado === orig.empleado);
+    if (!r) { nuevos.push(orig); continue; }
+    if (!ESTATUS_ASISTENCIA.has(r.estatus)) return res.status(400).json({ error: `Estatus inválido para ${orig.empleado}` });
+    if (r.estatus === "Asistió" || r.estatus === "Retardo") {
+      if (!HORA_RE.test(r.entrada || "") || !HORA_RE.test(r.salida || "")) return res.status(400).json({ error: `Falta hora de entrada o salida de ${orig.empleado}` });
+      nuevos.push({ ...orig, estatus: r.estatus, entrada: r.entrada, salida: r.salida });
+    } else {
+      nuevos.push({ ...orig, estatus: r.estatus, entrada: "", salida: "" });
+    }
+  }
+  const actualizado = { ...doc, registros: nuevos, editadoPor: req.user.username };
+  await upsertItem("asistencia_sucursal", id, actualizado);
+  res.json(actualizado);
+}));
+app.delete("/api/nomina/asistencia", requireAuth, requireRrhhODueno, asyncRoute(async (req, res) => {
+  const { sucursal, fecha } = req.body || {};
+  if (typeof sucursal !== "string" || typeof fecha !== "string" || !FECHA_RE.test(fecha)) return res.status(400).json({ error: "Faltan datos" });
+  const id = `asist|${sucursal}|${fecha}`;
+  if (!(await getItem("asistencia_sucursal", id))) return res.status(404).json({ error: "No se encontró ese día" });
+  await deleteItem("asistencia_sucursal", id);
+  res.json({ ok: true });
 }));
 app.put("/api/nomina/reactivar", requireAuth, requireAdminORrhh, asyncRoute(async (req, res) => {
   const { sucursal, nombre } = req.body || {};

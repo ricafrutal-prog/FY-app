@@ -2,7 +2,7 @@
 // sucursales (Gestión). Un "día de asistencia" es un documento por sucursal y
 // fecha: { id, sucursal, fecha, registros: [{ empleado, puesto, estatus, entrada, salida }] }.
 
-export const ESTATUS = ["Asistió", "Retardo", "Falta", "Descanso", "Vacaciones"];
+export const ESTATUS = ["Asistió", "Retardo", "Falta", "Descanso", "Permiso", "Vacaciones"];
 export const ESTATUS_CON_HORAS = new Set(["Asistió", "Retardo"]);
 
 // Colores como en la hoja de Excel (verde = asistió, amarillo = retardo, rojo = falta…).
@@ -12,6 +12,7 @@ export const ESTATUS_COLOR = {
   "Falta": { color: "#B3261E", fondo: "#F8C9C9" },
   "Descanso": { color: "#41414C", fondo: "#E6E3DB" },
   "Vacaciones": { color: "#1F5FA8", fondo: "#CFE2F7" },
+  "Permiso": { color: "#6A2FA0", fondo: "#E6D7F5" },
   "Pendiente": { color: "#6B6B76", fondo: "#EEEDF0" },
 };
 
@@ -63,6 +64,11 @@ export function minutosTarde(reg, h) {
 export function estatusEfectivo(reg, h) {
   if (!reg) return "";
   if (reg.estatus === "Asistió" && h && minutosTarde(reg, h) > TOLERANCIA_MIN) return "Retardo";
+  if (reg.estatus === "Asistió" && h && reg.salida) {
+    let d = aMin(h.salida) - aMin(reg.salida);
+    if (d > 720) d -= 1440; else if (d < -720) d += 1440;
+    if (d > TOLERANCIA_MIN) return "Retardo"; // salió antes de su horario
+  }
   return reg.estatus;
 }
 // Diferencia de horas contra lo esperado (negativa = trabajó menos). 0 si no aplica.
@@ -121,7 +127,7 @@ export function maxFaltasVentana(fechasFalta) {
 // el estatus (ALERTA / BAJA) mira la ventana móvil de VENTANA_ALERTA_DIAS días
 // sobre TODAS las faltas capturadas hasta `fin`, como en la hoja de Excel.
 export function resumenEmpleado(docs, nombre, inicio, fin, horario = null) {
-  const r = { pendientes: 0, horasFaltantes: 0, retardosAuto: 0, dias: 0, asistencias: 0, retardos: 0, faltas: 0, descansos: 0, vacaciones: 0, horas: 0, maxFaltas: 0, faltasUltimos: 0 };
+  const r = { pendientes: 0, horasFaltantes: 0, retardosAuto: 0, dias: 0, asistencias: 0, retardos: 0, faltas: 0, descansos: 0, permisos: 0, vacaciones: 0, horas: 0, maxFaltas: 0, faltasUltimos: 0 };
   const fechasFalta = [];
   docs.forEach((d) => {
     if (d.fecha > fin) return;
@@ -136,6 +142,7 @@ export function resumenEmpleado(docs, nombre, inicio, fin, horario = null) {
     else if (reg.estatus === "Falta") r.faltas++;
     else if (reg.estatus === "Descanso") r.descansos++;
     else if (reg.estatus === "Vacaciones") r.vacaciones++;
+    else if (reg.estatus === "Permiso") r.permisos++;
     r.horas += horasDeRegistro(reg);
     const dif = diferenciaHoras(reg, horario);
     if (dif < 0) r.horasFaltantes += -dif;

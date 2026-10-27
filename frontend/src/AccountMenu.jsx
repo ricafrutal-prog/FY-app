@@ -8,6 +8,7 @@ import UsuariosConectados from "./UsuariosConectados.jsx";
 // Solo esta cuenta ve la opción "Usuarios conectados" (el servidor además
 // rechaza a cualquier otra con 403, aunque alguien intentara llamarla).
 const DUENO = "administrador_ricardo";
+// Quienes pueden asignar los días en que se recogen los cortes de cada sucursal.
 
 // Botón de cuenta ("Hola, {nombre} · Cuenta", como en Amazon) con su menú
 // desplegable. NO se posiciona solo — va adentro de <CuentaBarra>, que es la
@@ -78,10 +79,8 @@ export default function AccountMenu({ onCerrarSesion }) {
               </button>
             )}
 
-            <button disabled style={{ ...itemStyle, color: "#B7B7BF", cursor: "default" }}>
-              <Settings size={15} color="#B7B7BF" />
-              <span style={{ flex: 1 }}>Configuración de cuenta</span>
-              <span style={{ fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", color: "#B7B7BF", border: "1px solid #E6E3DB", borderRadius: 99, padding: "2px 6px" }}>Próx.</span>
+            <button onClick={() => { window.dispatchEvent(new Event("fy-abrir-config")); setAbierto(false); }} style={itemStyle}>
+              <Settings size={15} color="#0F6E66" /> Configuración de cuenta
             </button>
 
             <button

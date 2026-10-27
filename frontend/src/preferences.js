@@ -18,6 +18,7 @@ export const FUENTES = [
 ];
 
 export const DEFAULTS = {
+  estilo: "limpio", // limpio | clasico — "limpio" es el diseño nuevo (Inter, barras blancas, tarjetas suaves)
   tema: "claro", // claro | oscuro
   fuente: "jakarta",
   fondoImagen: null, // data URL (ya comprimida) o null
@@ -65,9 +66,12 @@ export function applyPrefs(prefs) {
   const root = document.documentElement;
 
   root.classList.toggle("fy-dark", p.tema === "oscuro");
+  root.classList.toggle("fy-limpio", p.estilo !== "clasico");
   root.classList.toggle("fy-compacta", p.densidad === "compacta");
 
-  const fuente = FUENTES.find((f) => f.id === p.fuente) || FUENTES[0];
+  // En el estilo Limpio la tipografía por default pasa a ser Inter (si eligió otra a propósito, se respeta).
+  const idFuente = p.estilo !== "clasico" && (p.fuente === "jakarta" || !p.fuente) ? "inter" : p.fuente;
+  const fuente = FUENTES.find((f) => f.id === idFuente) || FUENTES[0];
   root.style.setProperty("--fy-font", fuente.stack);
 
   if (p.fondoImagen) {
