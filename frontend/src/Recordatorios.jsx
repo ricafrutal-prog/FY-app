@@ -60,6 +60,7 @@ export default function Recordatorios() {
   const yo = getUsername();
   const [abierto, setAbierto] = useState(false);
   const [items, setItems] = useState([]);
+  const [notas, setNotas] = useState([]); // hilos de Pendientes con recordatorio diario
   const [personas, setPersonas] = useState([]);
   const [agregando, setAgregando] = useState(false);
   const [error, setError] = useState("");
@@ -70,6 +71,11 @@ export default function Recordatorios() {
       const r = await apiFetch("/api/recordatorios");
       const data = await r.json().catch(() => null);
       if (r.ok && Array.isArray(data)) setItems(data);
+      if (getRole() !== "sucursal") {
+        const rn = await apiFetch("/api/notas");
+        const dn = await rn.json().catch(() => null);
+        if (rn.ok && Array.isArray(dn)) setNotas(dn.filter((h) => h.recordatorio && !h.mensajes.find((m) => m.id === h.recordatorio.mensajeId)?.hecho));
+      }
     } catch { /* sin conexión: se reintenta en el siguiente ciclo */ }
   }, []);
 
@@ -107,15 +113,20 @@ export default function Recordatorios() {
   const proximos = activos.filter((r) => r.fecha > hoy);
   const hechos = mios.filter(hechoMio);
   const enviados = items.filter((r) => r.creador === yo && r.para === "otro");
-  const insignia = invitaciones.length + vencidos.length;
+  // Recordatorios diarios de Pendientes que tocan hoy y no se han marcado como hechos hoy.
+  const diaSemanaHoy = new Date().getDay();
+  const notasHoy = notas.filter((h) => (!h.recordatorio.dias.length || h.recordatorio.dias.includes(diaSemanaHoy)) && !(h.hechoFechas || []).includes(hoy));
+  const insignia = invitaciones.length + vencidos.length + notasHoy.length;
 
   // Revisa cada segundo (y cada vez que cambian los datos) si hay algo que deba sonar.
   const itemsRef = useRef(items);
   itemsRef.current = items;
+  const notasRef = useRef(notas);
+  notasRef.current = notas;
   useEffect(() => {
     const revisar = () => {
       const lista = itemsRef.current;
-      if (!lista.length) return;
+      if (!lista.length && !notasRef.current.length) return;
       const ahora = new Date();
       const hhmm = `${String(ahora.getHours()).padStart(2, "0")}:${String(ahora.getMinutes()).padStart(2, "0")}`;
       const hoyS = hoyLocal();
@@ -126,6 +137,10 @@ export default function Recordatorios() {
         const esMio = (r.creador === yo && r.para !== "otro") || (r.destinatario === yo && r.respuesta === "aceptado");
         const hecho = r.creador === yo ? r.hechoCreador : r.hechoDestinatario;
         if (esMio && !hecho && (r.fecha < hoyS || (r.fecha === hoyS && (!r.hora || r.hora <= hhmm)))) nuevos.push(`due:${r.id}:${r.fecha}:${r.hora || ""}`);
+      });
+      notasRef.current.forEach((h) => {
+        const toca = !h.recordatorio.dias.length || h.recordatorio.dias.includes(ahora.getDay());
+        if (toca && !(h.hechoFechas || []).includes(hoyS) && (!h.recordatorio.hora || h.recordatorio.hora <= hhmm)) nuevos.push(`nota:${h.id}:${hoyS}:${h.recordatorio.hora || ""}`);
       });
       const sinSonar = nuevos.filter((k) => !vistos.has(k));
       if (sinSonar.length) {
@@ -151,6 +166,7 @@ export default function Recordatorios() {
     if (accion === "rechazar" && !window.confirm("¿Seguro que quieres rechazar este recordatorio? Quien te lo mandó verá que lo rechazaste.")) return;
     return mutar(`/api/recordatorios/${id}/responder`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ accion }) });
   };
+  const hechoNota = (id) => mutar(`/api/notas/${id}/hecho-hoy`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fecha: hoy, hecho: true }) });
   const marcar = (id, hecho) => mutar(`/api/recordatorios/${id}/hecho`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ hecho }) });
   const borrar = (id) => {
     if (!window.confirm("¿Seguro que quieres eliminar este recordatorio? Esta acción no se puede deshacer.")) return;
@@ -209,7 +225,7 @@ export default function Recordatorios() {
   );
   const chip = (texto, color, fondo) => <span style={{ fontSize: 10, fontWeight: 700, color, background: fondo, borderRadius: 99, padding: "2px 8px", whiteSpace: "nowrap" }}>{texto}</span>;
 
-  const vacio = invitaciones.length + activos.length + hechos.length + enviados.length === 0;
+  const vacio = invitaciones.length + activos.length + hechos.length + enviados.length + notasHoy.length === 0;
 
   return (
     <div ref={wrapRef} className="noprint" style={{ position: "relative", display: "inline-block", fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
@@ -251,6 +267,17 @@ export default function Recordatorios() {
                     {btn("Aceptar", () => responder(r.id, "aceptar"), "#fff", T.ok, Check)}
                     {btn("Rechazar", () => responder(r.id, "rechazar"), T.bad, "#fff", X)}
                   </>
+                ))}
+
+                {seccion("Recordatorios diarios de tus pendientes", notasHoy, (h) => (
+                  <div key={h.id} style={{ border: `1px solid ${T.line}`, borderRadius: 10, padding: "10px 12px", background: "#fff" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                      <div style={{ fontWeight: 700, fontSize: 13, color: T.ink }}>{h.recordatorio.texto}</div>
+                      {chip("Hoy", T.warn, T.warnSoft)}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 5 }}>{h.titulo ? `${h.titulo} · ` : ""}Pendientes{h.recordatorio.hora ? ` · ${h.recordatorio.hora}` : ""}</div>
+                    <div style={{ display: "flex", gap: 6, marginTop: 8 }}>{btn("Hecho hoy", () => hechoNota(h.id), "#fff", T.brand, Check)}</div>
+                  </div>
                 ))}
 
                 {seccion("Para hoy o vencidos", vencidos, (r) => fila(r,

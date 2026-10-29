@@ -8,6 +8,7 @@ import AccountMenu from "./AccountMenu.jsx";
 import ConfigCuentaContenido from "./ConfigCuenta.jsx";
 import HoraInput from "./HoraInput.jsx";
 import RangoFechas from "./RangoFechas.jsx";
+import Pendientes from "./Pendientes.jsx";
 import { useSidebarOculta, PanelCabecera, BotonMostrarBarra } from "./SidebarToggle.jsx";
 import { RUTA_POR_DEFECTO, construirRuta, rutaNorm, rutaCoincide } from "./rutaCortes";
 import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
@@ -677,7 +678,7 @@ export default function App({ onCerrarSesion }) {
   // Un rol restringido no puede cambiar a un departamento o modo que no le toca,
   // aunque algún botón del programa lo intentara.
   const irADepto = (k) => { if (permisos && !permisos.deptos.has(k)) return; setDepto(k); };
-  const irAModo = (k) => { if (restringidoInv && k !== "gestion") return; setModo(k); };
+  const irAModo = (k) => { if (restringidoInv && k !== "gestion" && k !== "pendientes") return; setModo(k); };
   const [cuadro, setCuadro] = useState(CUADRO_SEED);
   const [inv, setInv] = useState(INV_SEED);
   const [invMes, setInvMes] = useState(INVMES_SEED);
@@ -823,7 +824,7 @@ export default function App({ onCerrarSesion }) {
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
-      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : (<>
+      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
@@ -948,7 +949,7 @@ export default function App({ onCerrarSesion }) {
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
 function NavRail({ modo, setModo, soloGestion }) {
   const [oculta, setOculta] = useSidebarOculta();
-  const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : [])];
+  const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"]];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
       <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12, flexShrink: 0 }}>
@@ -956,7 +957,7 @@ function NavRail({ modo, setModo, soloGestion }) {
       </div>
       {oculta && <BotonMostrarBarra onMostrar={() => setOculta(false)} />}
       {items.map(([k, label, icon]) => (
-        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
+        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" && k !== "pendientes" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" && k !== "pendientes" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
           <Ico name={icon} size={20} />
           <span style={{ fontSize: 9.5, fontWeight: 600 }}>{label}</span>
         </button>
@@ -965,21 +966,151 @@ function NavRail({ modo, setModo, soloGestion }) {
   );
 }
 
+/* ---------------- PENDIENTES (notas personales en hilos, para todas las cuentas de oficina) ---------------- */
+function PendientesPantalla({ onCerrarSesion }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Pendientes</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Mis notas</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}><Pendientes /></main>
+    </div>
+  );
+}
+
 /* ---------------- PERSONAL (solo CONC_USUARIOS) ---------------- */
 function Personal({ onCerrarSesion }) {
+  const [persona, setPersona] = useState(null); // null = panel principal | "elias"
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       <header style={sx.header} className="noprint">
         <div>
           <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Personal</div>
-          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Panel principal</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{persona === "elias" ? "Indicadores · Elías" : "Panel principal"}</div>
         </div>
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
-        <div style={sx.h1row}><h1 style={sx.h1}>Personal</h1></div>
-        <div style={sx.empty}>Este espacio está listo. Dime qué quieres que lleve.</div>
+        {persona === "elias" ? <PersonalElias onSalir={() => setPersona(null)} /> : (
+          <div>
+            <div style={sx.h1row}><h1 style={sx.h1}>Personal</h1><span style={{ fontSize: 12, color: T.muted }}>indicadores del desempeño del personal</span></div>
+            <div style={sx.sectionTitle}>Indicadores por persona</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+              <button onClick={() => setPersona("elias")} className="rowbtn" style={{ ...sx.deptoCard, textAlign: "left", alignItems: "flex-start", cursor: "pointer" }}>
+                <Ico name="User" size={30} strokeWidth={1.6} color={T.brand} />
+                <div style={{ fontWeight: 700, fontSize: 14, marginTop: 10 }}>Elías</div>
+                <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Auditor interno · Cortes y Control interno</div>
+              </button>
+            </div>
+          </div>
+        )}
       </main>
+    </div>
+  );
+}
+
+/* Indicadores de Elías (auditor interno). Salen de lo que él hace en Recepción de Cortes y de lo que
+   se mide en Control interno (Conciliación y Conteo de Cortes). Se pueden ver por periodo. */
+function PersonalElias({ onSalir }) {
+  const hoy = fechaLocalISO();
+  const [recepciones, , recListas] = usePersistedCollection("recepciones");
+  const [conteos, , conteosListos] = usePersistedCollection("conteos");
+  const [incConc, , incConcListas] = usePersistedCollection("incidencias_conciliacion");
+  const [incConteo, , incConteoListas] = usePersistedCollection("incidencias_conteo");
+  const [rutaLista] = usePersistedList("ruta_cortes", RUTA_POR_DEFECTO);
+  const ruta = useMemo(() => construirRuta(rutaLista), [rutaLista]);
+  const [per, setPer] = useState("actual"); // todo | actual | anterior | rango
+  const [desde, setDesde] = useState(`${hoy.slice(0, 7)}-01`);
+  const [hasta, setHasta] = useState(hoy);
+  const listos = recListas && conteosListos && incConcListas && incConteoListas;
+  const mesAnt = (() => { const y = Number(hoy.slice(0, 4)), m = Number(hoy.slice(5, 7)); const t = y * 12 + (m - 1) - 1; return `${Math.floor(t / 12)}-${String((t % 12) + 1).padStart(2, "0")}`; })();
+  const [a, b] = per === "actual" ? [`${hoy.slice(0, 7)}-01`, hoy] : per === "anterior" ? [`${mesAnt}-01`, finDeMes(mesAnt)] : per === "rango" ? (desde <= hasta ? [desde, hasta] : [hasta, desde]) : ["0000-01-01", "9999-12-31"];
+  const en = (f) => !!f && f >= a && f <= b;
+
+  const d = useMemo(() => {
+    if (!listos) return null;
+    // 1) Recepciones (Conciliación): visitas de la ruta del chofer que Elías recibió a tiempo.
+    const visitas = concVisitas(concEvaluar(recepciones, hoy, "2000-01-01", hoy, ruta)).filter((v) => en(v.fecha));
+    const med = concMediciones(visitas, hoy);
+    const rec = med.reduce((o, s) => ({ c: o.c + s["Conciliado"], f: o.f + s["Fuera de tiempo"], p: o.p + s.pendCuenta, x: o.x + s.faltCuenta, t: o.t + s.total }), { c: 0, f: 0, p: 0, x: 0, t: 0 });
+    const sinCapturar = visitas.filter((v) => v.estado !== "Conciliado" && !incConc.some((x) => x.id === incId(v.fecha, v.sucursal))).length;
+    // 2) y 3) Conteo de Cortes: periodos de conteo (lunes y jueves) dentro del filtro.
+    const per2 = ccEvaluar(recepciones, conteos, incConteo, hoy).filter((p) => en(p.D));
+    const cerrados = per2.filter((p) => !p.abierta);
+    const cumple = (key) => { const ev = cerrados.map((p) => p.controles.find((c) => c.key === key)?.estado).filter((e) => e === "Cumplido" || e === "Incumplido" || e === "Resuelto"); return { ok: ev.filter((e) => e === "Cumplido").length, t: ev.length, resueltos: ev.filter((e) => e === "Resuelto").length }; };
+    const tiempos = cumple("tiempos"), integridad = cumple("integridad");
+    const conDif = per2.filter((p) => p.concDif.length);
+    const montoDif = conDif.reduce((s, p) => s + p.concDif.reduce((x, k) => x + Math.abs(k.dif), 0), 0);
+    const concTot = per2.reduce((s, p) => s + p.conc.length, 0);
+    const difResueltas = conDif.filter((p) => p.controles.find((c) => c.key === "diferencia")?.estado === "Resuelto").length;
+    // 4) Incidencias de ambos controles.
+    const ic = incConc.filter((i) => en(i.fecha)), it = incConteo.filter((i) => en(i.periodo));
+    const abiertas = ic.filter((i) => i.estado === "Pendiente").length + it.filter((i) => i.estado === "Abierta").length;
+    const seguimiento = ic.filter((i) => i.estado === "En investigación").length + it.filter((i) => i.estado === "En seguimiento").length;
+    const resueltas = ic.filter((i) => i.estado === "Resuelto").length + it.filter((i) => i.estado === "Cerrada").length;
+    const dias = it.filter((i) => i.estado === "Cerrada" && i.cerradaEn && i.detectadoEn).map((i) => (new Date(i.cerradaEn) - new Date(i.detectadoEn)) / 86400000);
+    const diasProm = dias.length ? dias.reduce((s, x) => s + x, 0) / dias.length : null;
+    return { rec, sinCapturar, tiempos, integridad, conDif, montoDif, concTot, difResueltas, perCerrados: cerrados.length, abiertas, seguimiento, resueltas, totalInc: ic.length + it.length, diasProm };
+  }, [listos, recepciones, conteos, incConc, incConteo, ruta, hoy, a, b]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pct = (n, t) => (t ? Math.round((n / t) * 100) : null);
+  const colorPct = (p) => (p == null ? T.muted : p >= 90 ? "#1F8A4C" : p >= 70 ? "#B07A12" : T.bad);
+  const grande = (p) => (p == null ? "—" : `${p}%`);
+  const lbl = { fontSize: 11, color: T.muted, marginBottom: 3 };
+  const card = (titulo, ayuda, valor, color, sub, extra) => (
+    <div style={{ ...sx.repCard, padding: "20px 22px" }}>
+      <div style={{ fontWeight: 700, fontSize: 14 }}>{titulo}</div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 3, minHeight: 30 }}>{ayuda}</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 10 }}>
+        <span style={{ fontSize: 44, fontWeight: 700, color }}>{valor}</span>
+        <span style={{ fontSize: 12, color: T.muted }}>{sub}</span>
+      </div>
+      {extra && <div style={{ fontSize: 12, color: T.muted, marginTop: 10, lineHeight: 1.7 }}>{extra}</div>}
+    </div>
+  );
+  const dato = (etq, v, color) => <div><span style={{ color: color || T.ink, fontWeight: 700 }}>{v}</span> {etq}</div>;
+
+  return (
+    <div>
+      <button onClick={onSalir} style={sx.back}>‹ Personal</button>
+      <div style={sx.h1row}><h1 style={sx.h1}>Elías</h1><span style={{ fontSize: 12, color: T.muted }}>auditor interno · indicadores de Cortes y Control interno</span></div>
+      <div className="noprint" style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 18 }}>
+        <div><div style={lbl}>Periodo</div>
+          <select value={per} onChange={(e) => setPer(e.target.value)} className="sel" style={{ ...sx.sel, width: "auto", minWidth: 190 }}>
+            <option value="actual">Mes actual</option><option value="anterior">Mes anterior</option><option value="todo">Todo el historial</option><option value="rango">Rango de fechas</option>
+          </select>
+        </div>
+        {per === "rango" && <div><div style={lbl}>Fechas</div><RangoFechas desde={desde} hasta={hasta} max={hoy} onChange={(x, y) => { setDesde(x); setHasta(y); }} /></div>}
+      </div>
+      {!d ? <div style={sx.empty}>Cargando datos…</div> : (
+        <>
+          <div style={sx.sectionTitle}>Recepción de cortes</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 26 }}>
+            {card("Recepciones a tiempo", "Cortes de la ruta del chofer que recibió y registró el día que tocaba.", grande(pct(d.rec.c, d.rec.t)), colorPct(pct(d.rec.c, d.rec.t)), `de ${d.rec.t} visitas medidas`,
+              <>{dato("conciliadas", d.rec.c, CONC_ESTADOS["Conciliado"].color)}{dato("fuera de tiempo", d.rec.f, d.rec.f ? CONC_ESTADOS["Fuera de tiempo"].color : undefined)}{dato("pendientes sin resolver", d.rec.p, d.rec.p ? CONC_ESTADOS["Pendiente"].color : undefined)}{dato("faltantes sin resolver", d.rec.x, d.rec.x ? CONC_ESTADOS["Faltante"].color : undefined)}</>)}
+          </div>
+          <div style={sx.sectionTitle}>Conteo de cortes</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 26 }}>
+            {card("Conteos a tiempo", "Periodos (lunes y jueves) donde contó los cortes el día programado.", grande(pct(d.tiempos.ok, d.tiempos.t)), colorPct(pct(d.tiempos.ok, d.tiempos.t)), `de ${d.tiempos.t} periodos cerrados`,
+              <>{dato("cumplidos", d.tiempos.ok, "#1F8A4C")}{dato("incumplidos o resueltos", d.tiempos.t - d.tiempos.ok, d.tiempos.t - d.tiempos.ok ? T.bad : undefined)}</>)}
+            {card("Conteos íntegros", "Periodos donde todos los cortes recibidos quedaron contados dentro del periodo.", grande(pct(d.integridad.ok, d.integridad.t)), colorPct(pct(d.integridad.ok, d.integridad.t)), `de ${d.integridad.t} periodos cerrados`,
+              <>{dato("cumplidos", d.integridad.ok, "#1F8A4C")}{dato("incumplidos o resueltos", d.integridad.t - d.integridad.ok, d.integridad.t - d.integridad.ok ? T.bad : undefined)}</>)}
+            {card("Diferencias en el conteo", "Periodos donde alguna concentración de efectivo no cuadró en $0.00.", String(d.conDif.length), d.conDif.length ? T.bad : "#1F8A4C", d.conDif.length === 1 ? "periodo con diferencia" : "periodos con diferencia",
+              <>{dato("monto total de diferencias", aiMoney(d.montoDif), d.montoDif ? T.bad : undefined)}{dato(`concentraciones evaluadas`, d.concTot)}{dato("periodos con diferencia ya resueltos", d.difResueltas, d.difResueltas ? "#B07A12" : undefined)}</>)}
+          </div>
+          <div style={sx.sectionTitle}>Incidencias</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginBottom: 20 }}>
+            {card("Incidencias resueltas", "De Conciliación y de Conteo de Cortes.", grande(pct(d.resueltas, d.totalInc)), colorPct(pct(d.resueltas, d.totalInc)), `de ${d.totalInc} incidencias`,
+              <>{dato("abiertas o pendientes", d.abiertas, d.abiertas ? T.bad : undefined)}{dato("en investigación o seguimiento", d.seguimiento, d.seguimiento ? "#2B6CB0" : undefined)}{dato("resueltas o cerradas", d.resueltas, "#1F8A4C")}{dato("visitas sin conciliar y sin incidencia capturada", d.sinCapturar, d.sinCapturar ? "#B07A12" : undefined)}</>)}
+            {card("Tiempo de cierre", "Promedio entre detectar y cerrar una incidencia de Conteo de Cortes.", d.diasProm == null ? "—" : d.diasProm < 1 ? "<1" : d.diasProm.toFixed(1), T.brand, d.diasProm == null ? "sin incidencias cerradas" : "días en promedio")}
+          </div>
+          <div style={{ fontSize: 11.5, color: T.muted, lineHeight: 1.6 }}>Los porcentajes de Conciliación toman Conciliado y Fuera de tiempo como base; Pendiente y Faltante solo cuentan cuando la semana ya cerró. En Conteo de Cortes solo se evalúan periodos ya cerrados. Todo se calcula con lo ya capturado en Recepción de Cortes, Conciliación y Conteo de Cortes.</div>
+        </>
+      )}
     </div>
   );
 }
@@ -2942,15 +3073,17 @@ function AIConciliacion({ recepciones, sucursales, onSalir, incidencias = [], on
 const concVisitas = (ev) => ev.dias.flatMap((d) => d.filas.map((f) => ({ fecha: d.fecha, sucursal: f.e.nombre, estado: f.estado, recibidoEl: f.recibidoEl, cortesRecibidos: f.cortesRecibidos })));
 const concLunes = (iso) => aiSumaISO(iso, -((concDiaSem(iso) + 6) % 7));
 
-/* Panel "Pendientes": visitas sin conciliar cuya incidencia no está Resuelta (o aún no se captura). */
+/* Panel "Pendientes": todas las visitas sin conciliar con su incidencia (también las ya Resueltas, que quedan registradas). */
 function ConcPendientes({ visitas, incidencias, onGuardar, onSalir }) {
   const [modal, setModal] = useState(null);
   const [filtro, setFiltro] = useState("todos"); // todos | sin | investigacion | pendiente
   const incDe = (v) => incidencias.find((x) => x.id === incId(v.fecha, v.sucursal));
-  const pend = visitas.filter((v) => v.estado !== "Conciliado" && incDe(v)?.estado !== "Resuelto").sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, "es"));
+  // Las incidencias Resueltas NO se borran: se quedan en la lista (con su causa y acción) y solo dejan de contar como "por atender".
+  const todas = visitas.filter((v) => v.estado !== "Conciliado").sort((a, b) => b.fecha.localeCompare(a.fecha) || a.sucursal.localeCompare(b.sucursal, "es"));
+  const pend = todas.filter((v) => incDe(v)?.estado !== "Resuelto");
   const estadoDe = (v) => incDe(v)?.estado || "Sin capturar";
-  const cuenta = { sin: pend.filter((v) => !incDe(v)).length, investigacion: pend.filter((v) => incDe(v)?.estado === "En investigación").length, pendiente: pend.filter((v) => incDe(v)?.estado === "Pendiente").length };
-  const lista = pend.filter((v) => filtro === "todos" || (filtro === "sin" && !incDe(v)) || (filtro === "investigacion" && incDe(v)?.estado === "En investigación") || (filtro === "pendiente" && incDe(v)?.estado === "Pendiente"));
+  const cuenta = { sin: pend.filter((v) => !incDe(v)).length, investigacion: pend.filter((v) => incDe(v)?.estado === "En investigación").length, pendiente: pend.filter((v) => incDe(v)?.estado === "Pendiente").length, resuelto: todas.filter((v) => incDe(v)?.estado === "Resuelto").length };
+  const lista = todas.filter((v) => filtro === "todos" || (filtro === "sin" && !incDe(v)) || (filtro === "investigacion" && incDe(v)?.estado === "En investigación") || (filtro === "pendiente" && incDe(v)?.estado === "Pendiente") || (filtro === "resuelto" && incDe(v)?.estado === "Resuelto"));
   const chipF = (k, t, n) => <button onClick={() => setFiltro(k)} style={{ border: `1px solid ${filtro === k ? T.ink : T.line}`, background: filtro === k ? T.ink : "#fff", color: filtro === k ? "#fff" : T.ink, fontSize: 12, fontWeight: 600, padding: "6px 13px", borderRadius: 99, cursor: "pointer", fontFamily: "inherit" }}>{t} ({n})</button>;
   const columnas = [
     { titulo: "Día de visita", valor: (f) => fechaDDMMAAAA(f.fecha) }, { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Estatus", valor: (f) => f.estado },
@@ -2960,8 +3093,8 @@ function ConcPendientes({ visitas, incidencias, onGuardar, onSalir }) {
     <div>
       <button onClick={onSalir} style={sx.back}>‹ Control interno</button>
       <div style={sx.h1row}><h1 style={sx.h1}>Pendientes</h1><span style={{ fontSize: 12, color: T.muted }}>incidencias de conciliación por atender</span></div>
-      <div className="noprint" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{chipF("todos", "Todos", pend.length)}{chipF("sin", "Sin capturar", cuenta.sin)}{chipF("pendiente", "Pendiente", cuenta.pendiente)}{chipF("investigacion", "En investigación", cuenta.investigacion)}</div>
-      <NominaTarjeta titulo="Visitas por atender" tituloArchivo="Pendientes de conciliacion" hechos={[["Por atender", String(pend.length)], ["Sin capturar", String(cuenta.sin)], ["En investigación", String(cuenta.investigacion)]]} exportar={{ columnas, filas: lista }} onCerrar={onSalir}>
+      <div className="noprint" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{chipF("todos", "Todos", todas.length)}{chipF("sin", "Sin capturar", cuenta.sin)}{chipF("pendiente", "Pendiente", cuenta.pendiente)}{chipF("investigacion", "En investigación", cuenta.investigacion)}{chipF("resuelto", "Resuelto", cuenta.resuelto)}</div>
+      <NominaTarjeta titulo="Visitas por atender" tituloArchivo="Pendientes de conciliacion" hechos={[["Por atender", String(pend.length)], ["Sin capturar", String(cuenta.sin)], ["En investigación", String(cuenta.investigacion)], ["Resueltas", String(cuenta.resuelto)]]} exportar={{ columnas, filas: lista }} onCerrar={onSalir}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr><th style={nomThL}>Día de visita</th><th style={nomThL}>Sucursal</th><th style={nomTh}>Estatus</th><th style={nomTh}>Incidencia</th><th style={nomThL}>Causa</th><th style={nomThL}>Acción correctiva</th><th style={nomTh}></th></tr></thead>
           <tbody>
@@ -2977,7 +3110,7 @@ function ConcPendientes({ visitas, incidencias, onGuardar, onSalir }) {
                 </tr>
               );
             })}
-            {lista.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No tienes pendientes. </td></tr>}
+            {lista.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>{filtro === "todos" ? "No hay incidencias de conciliación." : "No hay incidencias con este filtro."}</td></tr>}
           </tbody>
         </table>
       </NominaTarjeta>

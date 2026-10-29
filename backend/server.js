@@ -688,6 +688,93 @@ app.delete("/api/recordatorios/:id", requireAuth, asyncRoute(async (req, res) =>
   res.status(204).end();
 }));
 
+// ---- Pendientes: notas personales en hilos (solo cuentas de oficina; cada quien ve solo las suyas) ----
+// Un hilo = un título + mensajes con fecha. Cualquier mensaje puede convertirse en recordatorio
+// diario (todos los días o solo algunos días de la semana). Colección fuera de COLLECTIONS: solo se
+// llega por estas rutas, que siempre filtran por quien hace la petición.
+const COLECCION_NOTAS = "notas_hilos";
+function soloOficina(req, res, next) {
+  if (req.user?.role === "sucursal") return res.status(403).json({ error: "No tienes permiso para esto" });
+  next();
+}
+function limpiarRecordatorio(r) {
+  if (!r || typeof r !== "object") return null;
+  const dias = Array.isArray(r.dias) ? [...new Set(r.dias.map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort() : [];
+  const hora = typeof r.hora === "string" && HORA_RE.test(r.hora) ? r.hora : "";
+  return { dias: dias.length === 7 ? [] : dias, hora }; // [] = todos los días
+}
+async function hiloPropio(req, res) {
+  const h = await getItem(COLECCION_NOTAS, req.params.id);
+  if (!h || h.owner !== req.user.username) { res.status(404).json({ error: "No se encontró el pendiente" }); return null; }
+  return h;
+}
+app.get("/api/notas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const todos = await listCollection(COLECCION_NOTAS);
+  res.json(todos.filter((h) => h.owner === req.user.username));
+}));
+app.post("/api/notas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  const titulo = typeof b.titulo === "string" ? b.titulo.trim().slice(0, 120) : "";
+  if (!texto || texto.length > 2000) return res.status(400).json({ error: "Escribe el pendiente (máximo 2000 caracteres)" });
+  const ahora = new Date().toISOString();
+  const rec = b.recordatorio ? limpiarRecordatorio(b.recordatorio) : null;
+  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec };
+  const h = { id: randomUUID(), owner: req.user.username, titulo, mensajes: [m], recordatorio: rec ? { ...rec, texto, mensajeId: m.id, desde: ahora } : null, hechoFechas: [], creadoEn: ahora, actualizadoEn: ahora };
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.status(201).json(h);
+}));
+app.post("/api/notas/:id/mensajes", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  const b = req.body || {};
+  const texto = typeof b.texto === "string" ? b.texto.trim() : "";
+  if (!texto || texto.length > 2000) return res.status(400).json({ error: "Escribe el comentario (máximo 2000 caracteres)" });
+  if (h.mensajes.length >= 500) return res.status(400).json({ error: "Este hilo ya es muy largo" });
+  const ahora = new Date().toISOString();
+  const rec = b.recordatorio ? limpiarRecordatorio(b.recordatorio) : null;
+  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec };
+  h.mensajes.push(m);
+  // El recordatorio vigente del hilo es el del último mensaje que lo pidió; uno nuevo reemplaza al anterior.
+  if (rec) { h.recordatorio = { ...rec, texto, mensajeId: m.id, desde: ahora }; h.hechoFechas = []; }
+  h.actualizadoEn = ahora;
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.status(201).json(h);
+}));
+app.put("/api/notas/:id", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  const b = req.body || {};
+  if (typeof b.titulo === "string") h.titulo = b.titulo.trim().slice(0, 120);
+  if (b.quitarRecordatorio) h.recordatorio = null;
+  h.actualizadoEn = new Date().toISOString();
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.json(h);
+}));
+// Marcar un comentario como hecho (o deshacer): cada comentario se marca por separado.
+app.put("/api/notas/:id/mensajes/:mid", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  const m = h.mensajes.find((x) => x.id === req.params.mid);
+  if (!m) return res.status(404).json({ error: "No se encontró el comentario" });
+  m.hecho = !!(req.body || {}).hecho;
+  m.hechoEn = m.hecho ? new Date().toISOString() : null;
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.json(h);
+}));
+app.put("/api/notas/:id/hecho-hoy", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  const { fecha, hecho } = req.body || {};
+  if (typeof fecha !== "string" || !FECHA_RE.test(fecha)) return res.status(400).json({ error: "Fecha inválida" });
+  const set = new Set(h.hechoFechas || []);
+  if (hecho) set.add(fecha); else set.delete(fecha);
+  h.hechoFechas = [...set].sort().slice(-60);
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.json(h);
+}));
+app.delete("/api/notas/:id", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  await deleteItem(COLECCION_NOTAS, h.id);
+  res.status(204).end();
+}));
+
 // ---- Ventas sucursal automáticas desde Odoo (opcional, solo admin) ----
 // Si la sucursal todavía no está conectada, o el servidor no tiene la
 // configuración de Odoo puesta, regresa un error claro — el frontend, en ese
