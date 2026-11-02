@@ -9,15 +9,15 @@ import AsistenciaAdmin from "./AsistenciaAdmin.jsx";
 //   • Días de recolección de cortes: administrador_ricardo y jesus_segura.
 //   • Horarios del personal: Recursos Humanos (Cesar y Yessica) y administrador_ricardo.
 // La segunda columna queda libre para lo que se vaya agregando.
-const RUTA_CORTES_USUARIOS = new Set(["administrador_ricardo", "jesus_segura"]);
-const DUENO = "administrador_ricardo";
+const RUTA_CORTES_USUARIOS = new Set(["administrador_ricardo", "administrador_ramiro", "jesus_segura"]);
+const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro"]);
 const C = { ink: "#16161B", muted: "#8C8C97", line: "#E6E3DB", paper: "#F1F3F2", brand: "#0F6E66" };
 
 export function opcionesConfig() {
   const u = getUsername();
   const out = [];
   if (RUTA_CORTES_USUARIOS.has(u)) out.push({ key: "ruta", titulo: "Días de recolección de cortes", desc: "Qué días se recogen los cortes de cada sucursal", Icono: Truck });
-  if (getRole() === "rrhh" || u === DUENO) {
+  if (getRole() === "rrhh" || DUENOS.has(u)) {
     out.push({ key: "horarios", titulo: "Horarios del personal", desc: "Alta de personal y hora de entrada y salida de cada empleado", Icono: Clock });
     out.push({ key: "asistencia", titulo: "Registro de asistencia", desc: "Editar o eliminar lo que capturaron las sucursales", Icono: ClipboardList });
   }

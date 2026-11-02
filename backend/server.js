@@ -227,8 +227,10 @@ app.post("/api/auth/logout", requireAuth, asyncRoute(async (req, res) => {
 // El permiso se comprueba aquí, en el servidor, por nombre de usuario — el
 // botón en pantalla es solo comodidad.
 const SUPERADMIN = process.env.SUPERADMIN_USERNAME || "administrador_ricardo";
+// Cuentas "dueño": administrador_ricardo y administrador_ramiro tienen los mismos permisos.
+const DUENOS = new Set([SUPERADMIN, "administrador_ricardo", "administrador_ramiro"]);
 function requireSuperAdmin(req, res, next) {
-  if (req.user?.username !== SUPERADMIN) return res.status(403).json({ error: "No tienes permiso para esto" });
+  if (!DUENOS.has(req.user?.username)) return res.status(403).json({ error: "No tienes permiso para esto" });
   next();
 }
 app.get("/api/admin/sesiones", requireAuth, requireSuperAdmin, asyncRoute(async (req, res) => {
@@ -552,7 +554,7 @@ app.put("/api/nomina/estatus-dia", requireAuth, requireAdminORrhh, asyncRoute(as
 // Corregir o eliminar una captura de asistencia de una sucursal (Configuración de cuenta ›
 // Registro de asistencia). Solo Recursos Humanos (Cesar y Yessica) y administrador_ricardo.
 function requireRrhhODueno(req, res, next) {
-  if (req.user?.role === "rrhh" || req.user?.username === "administrador_ricardo") return next();
+  if (req.user?.role === "rrhh" || DUENOS.has(req.user?.username)) return next();
   return res.status(403).json({ error: "No tienes permiso para esto" });
 }
 app.put("/api/nomina/asistencia", requireAuth, requireRrhhODueno, asyncRoute(async (req, res) => {

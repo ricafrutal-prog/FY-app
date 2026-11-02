@@ -7,7 +7,7 @@ import UsuariosConectados from "./UsuariosConectados.jsx";
 
 // Solo esta cuenta ve la opción "Usuarios conectados" (el servidor además
 // rechaza a cualquier otra con 403, aunque alguien intentara llamarla).
-const DUENO = "administrador_ricardo";
+const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro"]);
 // Quienes pueden asignar los días en que se recogen los cortes de cada sucursal.
 
 // Botón de cuenta ("Hola, {nombre} · Cuenta", como en Amazon) con su menú
@@ -21,7 +21,7 @@ export default function AccountMenu({ onCerrarSesion }) {
   const [abierto, setAbierto] = useState(false);
   const [personalizando, setPersonalizando] = useState(false);
   const [verConectados, setVerConectados] = useState(false);
-  const esDueno = getUsername() === DUENO;
+  const esDueno = DUENOS.has(getUsername());
   const wrapRef = useRef(null);
   const nombre = nombreParaSaludo();
 

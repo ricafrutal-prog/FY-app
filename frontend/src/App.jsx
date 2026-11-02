@@ -2800,7 +2800,7 @@ function AITablaDenominaciones({ cantidades, onChange, soloLectura, denoms, agru
      • Fuera de tiempo: la recepcionó, pero otro día (después de su día).
      • Faltante:       pasaron más de 2 días hábiles y sigue sin recepcionarla.
    Solo la ven administrador_ricardo y jesus_segura. */
-const CONC_USUARIOS = new Set(["administrador_ricardo", "jesus_segura"]);
+const CONC_USUARIOS = new Set(["administrador_ricardo", "administrador_ramiro", "jesus_segura"]);
 const CONC_AUDITOR = "elias";        // se evalúa lo que recibió quien se llame así en "Quién recibe"
 const CONC_DIAS_HABILES = 2;         // a partir del tercer día hábil sin recepción pasa a Faltante
 const CONC_ESTADOS = {
@@ -7335,7 +7335,7 @@ function HorariosPersonal({ onCerrarSesion, onVolver }) {
       setEmpleadosLocal(d);
     } catch (err) { window.alert(err.message); }
   };
-  const permitido = getRole() === "rrhh" || getUsername() === "administrador_ricardo";
+  const permitido = getRole() === "rrhh" || ["administrador_ricardo", "administrador_ramiro"].includes(getUsername());
   if (!permitido) return null;
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
