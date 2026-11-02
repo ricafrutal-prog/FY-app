@@ -9,8 +9,8 @@ import AsistenciaAdmin from "./AsistenciaAdmin.jsx";
 //   • Días de recolección de cortes: administrador_ricardo y jesus_segura.
 //   • Horarios del personal: Recursos Humanos (Cesar y Yessica) y administrador_ricardo.
 // La segunda columna queda libre para lo que se vaya agregando.
-const RUTA_CORTES_USUARIOS = new Set(["administrador_ricardo", "administrador_ramiro", "jesus_segura"]);
-const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro"]);
+const RUTA_CORTES_USUARIOS = new Set(["administrador_ricardo", "administrador_ramiro", "administrador_carlos", "jesus_segura"]);
+const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro", "administrador_carlos"]);
 const C = { ink: "#16161B", muted: "#8C8C97", line: "#E6E3DB", paper: "#F1F3F2", brand: "#0F6E66" };
 
 export function opcionesConfig() {

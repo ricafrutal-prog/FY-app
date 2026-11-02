@@ -7,7 +7,7 @@ import UsuariosConectados from "./UsuariosConectados.jsx";
 
 // Solo esta cuenta ve la opción "Usuarios conectados" (el servidor además
 // rechaza a cualquier otra con 403, aunque alguien intentara llamarla).
-const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro"]);
+const DUENOS = new Set(["administrador_ricardo", "administrador_ramiro", "administrador_carlos"]);
 // Quienes pueden asignar los días en que se recogen los cortes de cada sucursal.
 
 // Botón de cuenta ("Hola, {nombre} · Cuenta", como en Amazon) con su menú

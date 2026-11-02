@@ -228,7 +228,7 @@ app.post("/api/auth/logout", requireAuth, asyncRoute(async (req, res) => {
 // botón en pantalla es solo comodidad.
 const SUPERADMIN = process.env.SUPERADMIN_USERNAME || "administrador_ricardo";
 // Cuentas "dueño": administrador_ricardo y administrador_ramiro tienen los mismos permisos.
-const DUENOS = new Set([SUPERADMIN, "administrador_ricardo", "administrador_ramiro"]);
+const DUENOS = new Set([SUPERADMIN, "administrador_ricardo", "administrador_ramiro", "administrador_carlos"]);
 function requireSuperAdmin(req, res, next) {
   if (!DUENOS.has(req.user?.username)) return res.status(403).json({ error: "No tienes permiso para esto" });
   next();
