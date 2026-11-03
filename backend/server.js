@@ -73,8 +73,21 @@ const COLLECTIONS = new Set([
   "entradas_inventario", "ajustes_inventario",
   "incidencias_conciliacion", // Control interno › Conciliación: causa / acción / estado por sucursal y día
   "incidencias_conteo",       // Control interno › Conteo de Cortes: incidencias por periodo y control
+  "tesoreria_capturas",       // Tesorería: una captura por día con sus movimientos (folio, categoría, ingreso, egreso…)
+  "tesoreria_saldo",          // Tesorería: saldo inicial (un solo documento, se pide la primera vez)
+  "nominas_semanas",          // Nóminas: un documento por semana (viernes a jueves) con todos los empleados
 ]);
-const LISTS = new Set(["sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia", "ruta_cortes"]);
+// Nóminas: mismo acceso que Tesorería (nivel alto y medio). El nivel medio puede capturar y
+// guardar borradores, pero no tocar una semana ya finalizada ni borrarla.
+const NOMINAS_COLECCIONES = new Set(["nominas_semanas"]);
+// Personal "fuera de sucursal" (oficina, almacén…): se guarda en la misma lista de empleados con
+// esta "sucursal" fija, así nunca aparece en la captura de asistencia de ninguna sucursal.
+const SUCURSAL_FUERA = "Fuera de sucursal"; // nombre que se usó antes; se sigue reconociendo
+const AREAS_PERSONAL = { oficina: "Oficina", almacen: "Almacén", produccion: "Producción" };
+// Tesorería: la ven y capturan los niveles alto y medio (administradores y Jesús). Editar o
+// borrar lo ya capturado es solo del nivel alto (desde Configuración de cuenta).
+const TESORERIA_COLECCIONES = new Set(["tesoreria_capturas", "tesoreria_saldo"]);
+const LISTS = new Set(["encargados_tesoreria", "sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia", "ruta_cortes"]);
 // Listas que un usuario "sucursal" puede LEER (nunca reemplazar/borrar toda
 // la lista — eso lo hace el admin desde Gestión). Por ejemplo el catálogo de
 // responsables que aparece como selector al capturar un corte.
@@ -137,6 +150,37 @@ function checkListRole(req, res, next) {
 // frontend. Esto es lo que hace la restricción real (no solo ocultar
 // botones en la pantalla).
 function checkCollectionRole(req, res, next) {
+  if (NOMINAS_COLECCIONES.has(req.params.name)) {
+    const u = req.user?.username;
+    const denegar = () => res.status(403).json({ error: "No tienes permiso para esto" });
+    if (req.user.role !== "admin" || !(DUENOS.has(u) || u === "jesus_segura")) return denegar();
+    if (DUENOS.has(u)) return next();
+    if (req.method === "GET") return next();
+    if (req.method === "DELETE") return denegar();
+    // Nivel medio: crear una semana nueva (POST) o seguir editando un borrador (PUT); nunca una finalizada.
+    const id = req.method === "POST" ? req.body?.id : req.params.id;
+    getItem(req.params.name, id)
+      .then((ya) => {
+        if (req.method === "POST") return ya ? res.status(409).json({ error: "Esa semana ya existe." }) : next();
+        return ya && ya.finalizado ? denegar() : next();
+      })
+      .catch(() => res.status(500).json({ error: "Error del servidor" }));
+    return;
+  }
+  if (TESORERIA_COLECCIONES.has(req.params.name)) {
+    const u = req.user?.username;
+    const denegar = () => res.status(403).json({ error: "No tienes permiso para esto" });
+    if (req.user.role !== "admin" || !(DUENOS.has(u) || u === "jesus_segura")) return denegar();
+    if (req.method !== "GET" && req.method !== "POST" && !DUENOS.has(u)) return denegar();
+    // El saldo inicial se captura una sola vez; cambiarlo después es del nivel alto.
+    if (req.method === "POST" && req.params.name === "tesoreria_saldo" && !DUENOS.has(u)) {
+      getItem(req.params.name, req.body?.id)
+        .then((ya) => (ya ? res.status(409).json({ error: "El saldo inicial ya está capturado." }) : next()))
+        .catch(() => res.status(500).json({ error: "Error del servidor" }));
+      return;
+    }
+    return next();
+  }
   if (req.user.role === "admin") return next();
   if (req.user.role === "rrhh") {
     const lee = req.method === "GET" && LECTURA_RRHH_COLECCIONES.has(req.params.name);
@@ -428,7 +472,11 @@ app.get("/api/lists/:name", requireAuth, checkList, checkListRole, asyncRoute(as
   const data = await getList(req.params.name);
   // Empleados de asistencia: cada sucursal solo ve a los suyos.
   if (req.user.role === "sucursal" && req.params.name === "empleados_asistencia") {
-    return res.json((Array.isArray(data) ? data : []).filter((e) => e && e.sucursal === req.user.sucursal && !e.fechaBaja).map(({ horaEntrada, horaSalida, ...resto }) => resto)); // el horario que le toca a cada quien no se muestra a la sucursal
+    return res.json((Array.isArray(data) ? data : []).filter((e) => e && e.sucursal === req.user.sucursal && !e.fechaBaja).map(({ horaEntrada, horaSalida, sueldoSemanal, bonoFijo, ...resto }) => resto)); // ni el horario ni el sueldo de cada quien se muestran a la sucursal
+  }
+  // Sueldos: solo los ven quien da de alta al personal (rrhh) y los niveles alto y medio.
+  if (req.params.name === "empleados_asistencia" && req.user.role === "admin" && !DUENOS.has(req.user.username) && req.user.username !== "jesus_segura") {
+    return res.json((Array.isArray(data) ? data : []).map((e) => { if (!e) return e; const { sueldoSemanal, bonoFijo, ...resto } = e; return resto; }));
   }
   res.json(data ?? []);
 }));
@@ -495,19 +543,41 @@ app.put("/api/nomina/baja", requireAuth, requireAdminORrhh, asyncRoute(async (re
   if (!lista) return res.status(404).json({ error: "No se encontró a la persona" });
   res.json(lista);
 }));
+// Días que trabaja la persona: arreglo de números 0 (domingo) a 6 (sábado). null = no viene; false = inválido.
+function diasLaboralesValidos(v) {
+  if (v == null) return null;
+  if (!Array.isArray(v) || v.length === 0 || v.length > 7 || !v.every((n) => Number.isInteger(n) && n >= 0 && n <= 6)) return false;
+  return [...new Set(v)].sort((a, b) => a - b);
+}
 // Alta de personal nuevo (nombre y dos apellidos). Solo admin y rrhh: las sucursales ya no
 // agregan nombres; lo que se da de alta aquí aparece en Cortes (responsables) y en Registro asistencia.
 app.post("/api/nomina/personal", requireAuth, requireAdminORrhh, asyncRoute(async (req, res) => {
   const limpio = (v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : "");
-  const { sucursal } = req.body || {};
+  const tipo = AREAS_PERSONAL[req.body?.tipo] ? req.body.tipo : "sucursal";
+  const sucursal = tipo === "sucursal" ? req.body?.sucursal : AREAS_PERSONAL[tipo];
   const nombre = limpio(req.body?.nombre), apPaterno = limpio(req.body?.apellidoPaterno), apMaterno = limpio(req.body?.apellidoMaterno), puesto = limpio(req.body?.puesto);
-  if (typeof sucursal !== "string" || !sucursal.trim()) return res.status(400).json({ error: "Elige la sucursal" });
+  if (typeof sucursal !== "string" || !sucursal.trim() || (tipo === "sucursal" && (sucursal === SUCURSAL_FUERA || Object.values(AREAS_PERSONAL).includes(sucursal)))) return res.status(400).json({ error: "Elige la sucursal" });
+  const { horaEntrada, horaSalida } = req.body || {};
+  const hayHorario = !!horaEntrada || !!horaSalida;
+  if (hayHorario && (typeof horaEntrada !== "string" || typeof horaSalida !== "string" || !HORA_RE.test(horaEntrada) || !HORA_RE.test(horaSalida))) return res.status(400).json({ error: "Horario inválido (usa HH:MM)" });
+  const dinero = (v) => { if (v === "" || v == null) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n < 10000000 ? Math.round(n * 100) / 100 : NaN; };
+  const sueldoSemanal = dinero(req.body?.sueldoSemanal), bonoFijo = dinero(req.body?.bonoFijo);
+  if (Number.isNaN(sueldoSemanal) || Number.isNaN(bonoFijo)) return res.status(400).json({ error: "El sueldo y el bono deben ser montos válidos" });
+  const diasLab = diasLaboralesValidos(req.body?.diasLaborales);
+  if (diasLab === false) return res.status(400).json({ error: "Los días que trabaja son inválidos" });
   if (!nombre || !apPaterno || !apMaterno) return res.status(400).json({ error: "Captura el nombre y los dos apellidos" });
   const completo = `${nombre} ${apPaterno} ${apMaterno}`;
   if (completo.length > 120 || puesto.length > 80) return res.status(400).json({ error: "Texto demasiado largo" });
   const lista = Array.isArray(await getList("empleados_asistencia")) ? await getList("empleados_asistencia") : [];
   if (lista.some((e) => e && e.sucursal === sucursal && !e.fechaBaja && (e.nombre || "").toLowerCase() === completo.toLowerCase())) return res.status(409).json({ error: "Esa persona ya está dada de alta en esa sucursal" });
-  lista.push({ nombre: completo, puesto, sucursal, fechaAlta: typeof req.body?.fechaAlta === "string" && FECHA_RE.test(req.body.fechaAlta) ? req.body.fechaAlta : new Date().toISOString().slice(0, 10) });
+  lista.push({
+    nombre: completo, puesto, sucursal, tipo,
+    fechaAlta: typeof req.body?.fechaAlta === "string" && FECHA_RE.test(req.body.fechaAlta) ? req.body.fechaAlta : new Date().toISOString().slice(0, 10),
+    ...(hayHorario ? { horaEntrada, horaSalida } : {}),
+    ...(sueldoSemanal != null ? { sueldoSemanal } : {}),
+    ...(bonoFijo != null ? { bonoFijo } : {}),
+    ...(diasLab ? { diasLaborales: diasLab } : {}),
+  });
   await setList("empleados_asistencia", lista);
   res.status(201).json(lista);
 }));
@@ -528,8 +598,18 @@ app.put("/api/nomina/horario", requireAuth, requireAdminORrhh, asyncRoute(async 
   if (typeof sucursal !== "string" || typeof nombre !== "string") return res.status(400).json({ error: "Faltan datos" });
   const vacio = !entrada && !salida;
   if (!vacio && (typeof entrada !== "string" || typeof salida !== "string" || !HORA_RE.test(entrada) || !HORA_RE.test(salida))) return res.status(400).json({ error: "Horario inválido (usa HH:MM)" });
+  // Sueldo semanal y bono fijo (opcionales): si vienen vacíos se quitan, si no se guardan.
+  const dinero = (v) => { if (v === "" || v == null) return null; const n = Number(v); return Number.isFinite(n) && n >= 0 && n < 10000000 ? Math.round(n * 100) / 100 : NaN; };
+  const cambiaSueldo = Object.prototype.hasOwnProperty.call(req.body, "sueldoSemanal"), cambiaBono = Object.prototype.hasOwnProperty.call(req.body, "bonoFijo");
+  const sueldo = cambiaSueldo ? dinero(req.body.sueldoSemanal) : undefined, bono = cambiaBono ? dinero(req.body.bonoFijo) : undefined;
+  if (Number.isNaN(sueldo) || Number.isNaN(bono)) return res.status(400).json({ error: "El sueldo y el bono deben ser montos válidos" });
+  const diasLab = diasLaboralesValidos(req.body.diasLaborales);
+  if (diasLab === false) return res.status(400).json({ error: "Los días que trabaja son inválidos" });
   const lista = await cambiarEmpleado(sucursal, nombre, (e) => {
-    const { horaEntrada, horaSalida, ...resto } = e;
+    const { horaEntrada, horaSalida, ...base } = e;
+    let resto = diasLab ? { ...base, diasLaborales: diasLab } : base;
+    if (cambiaSueldo) { const { sueldoSemanal, ...r } = resto; resto = sueldo == null ? r : { ...r, sueldoSemanal: sueldo }; }
+    if (cambiaBono) { const { bonoFijo, ...r } = resto; resto = bono == null ? r : { ...r, bonoFijo: bono }; }
     return vacio ? resto : { ...resto, horaEntrada: entrada, horaSalida: salida };
   });
   if (!lista) return res.status(404).json({ error: "No se encontró a la persona" });

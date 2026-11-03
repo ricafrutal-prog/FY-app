@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Truck, Clock, ClipboardList } from "lucide-react";
+import { Truck, UserPlus, ClipboardList, Landmark } from "lucide-react";
 import { getUsername, getRole } from "./auth";
 import RutaCortesModal from "./RutaCortesModal.jsx";
 import AsistenciaAdmin from "./AsistenciaAdmin.jsx";
+import TesoreriaAdmin from "./TesoreriaAdmin.jsx";
 
 // Pantalla "Configuración de cuenta" (se abre desde el menú de Cuenta). Para todos los
 // usuarios; dos columnas: en la primera van las opciones que le tocan a cada quien.
@@ -18,9 +19,10 @@ export function opcionesConfig() {
   const out = [];
   if (RUTA_CORTES_USUARIOS.has(u)) out.push({ key: "ruta", titulo: "Días de recolección de cortes", desc: "Qué días se recogen los cortes de cada sucursal", Icono: Truck });
   if (getRole() === "rrhh" || DUENOS.has(u)) {
-    out.push({ key: "horarios", titulo: "Horarios del personal", desc: "Alta de personal y hora de entrada y salida de cada empleado", Icono: Clock });
+    out.push({ key: "horarios", titulo: "Alta de personal", desc: "Dar de alta personal (de sucursal o fuera de ella), con su puesto, horario y sueldo", Icono: UserPlus });
     out.push({ key: "asistencia", titulo: "Registro de asistencia", desc: "Editar o eliminar lo que capturaron las sucursales", Icono: ClipboardList });
   }
+  if (DUENOS.has(u)) out.push({ key: "tesoreria", titulo: "Tesorería", desc: "Editar o eliminar movimientos y capturas de tesorería", Icono: Landmark });
   return out;
 }
 
@@ -28,7 +30,16 @@ export default function ConfigCuentaContenido({ onAbrirHorarios }) {
   const opciones = opcionesConfig();
   const [verRuta, setVerRuta] = useState(false);
   const [verAsistencia, setVerAsistencia] = useState(false);
-  const abrir = (k) => { if (k === "ruta") setVerRuta(true); else if (k === "horarios") onAbrirHorarios && onAbrirHorarios(); else if (k === "asistencia") setVerAsistencia(true); };
+  const [verTesoreria, setVerTesoreria] = useState(false);
+  const abrir = (k) => { if (k === "ruta") setVerRuta(true); else if (k === "horarios") onAbrirHorarios && onAbrirHorarios(); else if (k === "asistencia") setVerAsistencia(true); else if (k === "tesoreria") setVerTesoreria(true); };
+  if (verTesoreria) {
+    return (
+      <div>
+        <button onClick={() => setVerTesoreria(false)} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 12 }}>‹ Configuración de cuenta</button>
+        <TesoreriaAdmin />
+      </div>
+    );
+  }
   if (verAsistencia) {
     return (
       <div>

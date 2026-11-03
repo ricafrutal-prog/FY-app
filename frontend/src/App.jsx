@@ -9,6 +9,9 @@ import ConfigCuentaContenido from "./ConfigCuenta.jsx";
 import HoraInput from "./HoraInput.jsx";
 import RangoFechas from "./RangoFechas.jsx";
 import Pendientes from "./Pendientes.jsx";
+import MontoInput from "./MontoInput.jsx";
+import { jornadaNeta, DIAS_NOMINA, SUCURSAL_FUERA, AREAS_PERSONAL, esAreaFuera, ordenGrupo, CONCEPTOS_NOMINA, etiquetaSemana, idSemana, semanasRecientes, ultimaSemanaCompleta, calcularFila, filaDeEmpleado, claveFila, totalNomina, autocompletarHoras, DIAS_GETDAY_NOMINA, DIAS_SEMANA_LMD, DIAS_LABORALES_DEFECTO, diasLaborales, textoDias } from "./nominaUtil";
+import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos } from "./tesoreriaUtil";
 import { useSidebarOculta, PanelCabecera, BotonMostrarBarra } from "./SidebarToggle.jsx";
 import { RUTA_POR_DEFECTO, construirRuta, rutaNorm, rutaCoincide } from "./rutaCortes";
 import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
@@ -525,6 +528,8 @@ const DEPTOS = [
   { key: "auditoria_interna", nombre: "Cortes", iconName: "ShieldCheck" },
   { key: "nomina_sucursales", nombre: "Registro asistencia sucursales", iconName: "Wallet", activo: true },
   { key: "control_interno", nombre: "Control interno", iconName: "ShieldAlert", activo: true, soloUsuarios: true },
+  { key: "tesoreria", nombre: "Tesorería", iconName: "Landmark", activo: true, soloUsuarios: true },
+  { key: "nominas", nombre: "Nóminas", iconName: "Banknote", activo: true, soloUsuarios: true },
 ];
 // "soloUsuarios": el departamento solo aparece para las cuentas de CONC_USUARIOS.
 const deptoVisible = (d) => !d.soloUsuarios || CONC_USUARIOS.has(getUsername());
@@ -837,7 +842,9 @@ export default function App({ onCerrarSesion }) {
       {depto === "auditoria_interna" && <AuditoriaInterna onCerrarSesion={onCerrarSesion} />}
       {depto === "nomina_sucursales" && <NominaSucursales onCerrarSesion={onCerrarSesion} />}
       {depto === "control_interno" && CONC_USUARIOS.has(getUsername()) && <ControlInterno onCerrarSesion={onCerrarSesion} />}
-      {depto !== "control_interno" && depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
+      {depto === "tesoreria" && CONC_USUARIOS.has(getUsername()) && <Tesoreria onCerrarSesion={onCerrarSesion} />}
+      {depto === "nominas" && CONC_USUARIOS.has(getUsername()) && <Nominas onCerrarSesion={onCerrarSesion} />}
+      {depto !== "nominas" && depto !== "tesoreria" && depto !== "control_interno" && depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
       {depto === "mantenimiento" && (<>
 
       {/* barra superior */}
@@ -6816,6 +6823,601 @@ function ControlInterno({ onCerrarSesion }) {
 }
 
 /* ============================================================
+   TESORERÍA — captura de movimientos de dinero (ingresos y egresos).
+   La ven los niveles alto y medio (CONC_USUARIOS). Mismo flujo que Recepción de Cortes:
+   lista → "+ Nueva captura" → captura → Siguiente (revisión) → Finalizar.
+   Arriba de la captura van el encargado y la fecha; abajo, los movimientos.
+   La primera vez se pide el saldo inicial; después el saldo se mueve solo con los movimientos.
+   Editar o borrar lo ya capturado se hace en Configuración de cuenta › Tesorería (nivel alto).
+   ============================================================ */
+const TES_COLS = "78px 1fr 1fr 1fr 1.2fr 2.4fr 118px 118px 26px";
+const TES_ORDEN = ["folio", "categoria", "subcategoria", "detalle", "nombre", "concepto", "ingreso", "egreso"];
+const TES_ROTULOS = { folio: "Folio", categoria: "Categoría", subcategoria: "Subcategoría", detalle: "Detalle", nombre: "Nombre", concepto: "Concepto", ingreso: "Ingreso", egreso: "Egreso" };
+const tesDosPalabras = (t) => { const p = t.split(/\s+/); return p.length > 2 ? p.slice(0, 2).join(" ") : t; };
+
+function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onEliminarEncargado, onSiguiente, onCancelar }) {
+  const [fecha, setFecha] = useState(inicial?.fecha || fechaLocalISO());
+  const [encargado, setEncargado] = useState(inicial?.encargado || "");
+  const [saldo, setSaldo] = useState(inicial?.saldoInicial != null ? String(inicial.saldoInicial) : "");
+  const [movs, setMovs] = useState(inicial?.movimientos?.length
+    ? inicial.movimientos.map((m) => ({ ...m, ingreso: m.ingreso ? String(m.ingreso) : "", egreso: m.egreso ? String(m.egreso) : "" }))
+    : [movimientoVacio()]);
+  const pendienteFoco = useRef(null);
+
+  useEffect(() => {
+    if (!pendienteFoco.current) return;
+    const { fila, campo } = pendienteFoco.current;
+    pendienteFoco.current = null;
+    const el = document.querySelector(`[data-tes="${fila}-${campo}"]`);
+    if (el) el.focus();
+  });
+
+  const poner = (i, campo, valor) => setMovs((p) => p.map((m, idx) => {
+    if (idx !== i) return m;
+    if (campo === "folio") return { ...m, folio: soloDigitos(valor) };
+    if (campo === "categoria" || campo === "subcategoria" || campo === "detalle") return { ...m, [campo]: tesDosPalabras(valor).slice(0, 40) };
+    if (campo === "ingreso") { const v = limpiarMonto(valor); return { ...m, ingreso: v, egreso: v ? "" : m.egreso }; }
+    if (campo === "egreso") { const v = limpiarMonto(valor); return { ...m, egreso: v, ingreso: v ? "" : m.ingreso }; }
+    return { ...m, [campo]: valor };
+  }));
+  const agregar = () => { pendienteFoco.current = { fila: movs.length, campo: "folio" }; setMovs((p) => [...p, movimientoVacio()]); };
+  const quitar = (i) => setMovs((p) => (p.length > 1 ? p.filter((_, idx) => idx !== i) : p));
+  const enfocar = (fila, campo) => { const el = document.querySelector(`[data-tes="${fila}-${campo}"]`); if (el) el.focus(); };
+  const alTeclear = (e, i, campo) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const k = TES_ORDEN.indexOf(campo);
+    if (k < TES_ORDEN.length - 1) enfocar(i, TES_ORDEN[k + 1]);
+    else if (i === movs.length - 1) agregar();
+    else enfocar(i + 1, "folio");
+  };
+
+  const saldoOk = !pideSaldo || String(saldo).trim() !== "";
+  const todosValidos = movs.length > 0 && movs.every(movimientoValido);
+  const ok = !!fecha && !!encargado && saldoOk && todosValidos;
+  const tot = totalesDe(movs);
+  const siguiente = () => {
+    if (!ok) return;
+    onSiguiente({
+      fecha, encargado, saldoInicial: pideSaldo ? tesNum(saldo) : null,
+      movimientos: movs.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso) })),
+    });
+  };
+  const celda = { ...sx.sel, padding: "7px 8px", fontSize: 12.5, minWidth: 0 };
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Nueva captura de tesorería</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          <AISelectorNombre label="Encargado de la captura" valor={encargado} onChange={setEncargado} opciones={encargados} onAgregar={onAgregarEncargado} onEliminar={(n) => { onEliminarEncargado(n); if (encargado === n) setEncargado(""); }} placeholder="Selecciona quién captura" />
+          <TField label="Fecha de la captura"><input type="date" value={fecha} max={fechaLocalISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} /></TField>
+          {pideSaldo && (
+            <TField label="Saldo inicial" hint="Solo se pide esta primera vez">
+              <input value={saldo} onChange={(e) => setSaldo(limpiarMonto(e.target.value))} inputMode="decimal" placeholder="$0.00" className="sel" style={sx.sel} />
+            </TField>
+          )}
+        </div>
+      </div>
+
+      <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Movimientos</div>
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 1080, display: "grid", gap: 6 }}>
+            <div style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 2px" }}>
+              {TES_ORDEN.map((c) => <div key={c}>{TES_ROTULOS[c]}</div>)}<div />
+            </div>
+            {movs.map((m, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, alignItems: "center" }}>
+                {TES_ORDEN.map((c) => (
+                  <input
+                    key={c}
+                    data-tes={`${i}-${c}`}
+                    value={m[c]}
+                    onChange={(e) => poner(i, c, e.target.value)}
+                    onKeyDown={(e) => alTeclear(e, i, c)}
+                    inputMode={c === "folio" ? "numeric" : c === "ingreso" || c === "egreso" ? "decimal" : "text"}
+                    placeholder={c === "ingreso" || c === "egreso" ? "0.00" : c === "concepto" ? "Describe el movimiento" : ""}
+                    maxLength={c === "concepto" ? 240 : undefined}
+                    spellCheck={c === "concepto"}
+                    lang="es"
+                    className="sel"
+                    style={{ ...celda, textAlign: c === "ingreso" || c === "egreso" ? "right" : "left" }}
+                  />
+                ))}
+                <button onClick={() => quitar(i)} disabled={movs.length === 1} title="Quitar este movimiento" style={{ background: "none", border: "none", cursor: movs.length === 1 ? "not-allowed" : "pointer", opacity: movs.length === 1 ? 0.3 : 1, padding: 0, lineHeight: 0 }}><Ico name="X" size={16} color={T.bad} /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>+ Agregar movimiento</button>
+          <div style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", gap: 16, flexWrap: "wrap" }}>
+            <span>Ingresos <strong style={{ color: T.ok }}>{aiMoney(tot.ingresos)}</strong></span>
+            <span>Egresos <strong style={{ color: T.bad }}>{aiMoney(tot.egresos)}</strong></span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11.5, color: T.muted }}>Cada movimiento lleva folio, concepto y un monto (ingreso o egreso, no los dos). Con Enter pasas al siguiente campo.</div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button onClick={onCancelar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+        <button onClick={siguiente} disabled={!ok} title={ok ? "" : "Completa encargado, fecha y los datos obligatorios de cada movimiento"} className="actbtn" style={{ ...sx.actbtn, background: ok ? T.ink : T.line, color: ok ? "#fff" : T.muted, cursor: ok ? "pointer" : "not-allowed" }}>Siguiente</button>
+      </div>
+    </div>
+  );
+}
+
+function TesoreriaRevision({ datos, saldoPrevio, soloLectura, onAtras, onFinalizar, onCerrar }) {
+  const tot = totalesDe(datos.movimientos);
+  const th = { padding: "7px 10px", textAlign: "left", fontSize: 12 };
+  const td = { padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, fontSize: 13 };
+  const titulo = `Tesorería ${datos.fecha}`;
+  return (
+    <div style={{ ...sx.repCard, display: "grid", gap: 16 }}>
+      {soloLectura && <PrintHeader titulo={titulo} />}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{soloLectura ? "Detalle de la captura" : "Revisión de la captura"}</div>
+        {soloLectura && <AIExportMenu titulo={titulo} columnas={columnasMovimientos(aiMoney)} filas={datos.movimientos} />}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, fontSize: 13 }}>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong>{datos.fecha}</strong></div>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Encargado</div><strong>{datos.encargado}</strong></div>
+        {!soloLectura && saldoPrevio != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo anterior</div><strong>{aiMoney(saldoPrevio)}</strong></div>}
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Ingresos</div><strong style={{ color: T.ok }}>{aiMoney(tot.ingresos)}</strong></div>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Egresos</div><strong style={{ color: T.bad }}>{aiMoney(tot.egresos)}</strong></div>
+        {soloLectura
+          ? <div><div style={{ color: T.muted, fontSize: 11 }}>Neto de la captura</div><strong>{aiMoney(tot.neto)}</strong></div>
+          : saldoPrevio != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo después</div><strong style={{ color: T.brand }}>{aiMoney(Math.round((saldoPrevio + tot.neto) * 100) / 100)}</strong></div>}
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: T.paper }}>
+            {TES_ORDEN.map((c) => <th key={c} style={{ ...th, textAlign: c === "ingreso" || c === "egreso" ? "right" : "left" }}>{TES_ROTULOS[c]}</th>)}
+          </tr></thead>
+          <tbody>
+            {datos.movimientos.map((m, i) => (
+              <tr key={i}>
+                <td style={td}>{m.folio}</td><td style={td}>{m.categoria}</td><td style={td}>{m.subcategoria}</td><td style={td}>{m.detalle}</td><td style={td}>{m.nombre}</td>
+                <td style={{ ...td, minWidth: 220 }}>{m.concepto}</td>
+                <td style={{ ...td, textAlign: "right", color: T.ok }}>{tesNum(m.ingreso) ? aiMoney(tesNum(m.ingreso)) : ""}</td>
+                <td style={{ ...td, textAlign: "right", color: T.bad }}>{tesNum(m.egreso) ? aiMoney(tesNum(m.egreso)) : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="noprint" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {soloLectura ? (
+          <button onClick={onCerrar} className="actbtn" style={{ ...sx.actbtn, background: T.ink, color: "#fff" }}>Cerrar</button>
+        ) : (
+          <>
+            <button onClick={onAtras} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>‹ Atrás</button>
+            <button onClick={onFinalizar} className="actbtn" style={{ ...sx.actbtn, background: T.ink, color: "#fff" }}>Finalizar</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Tesoreria({ onCerrarSesion }) {
+  const [capturas, setCapturas, capturasListas] = usePersistedCollection("tesoreria_capturas");
+  const [saldoDocs, setSaldoDocs, saldoListo] = usePersistedCollection("tesoreria_saldo");
+  const [encargados, setEncargados] = usePersistedList("encargados_tesoreria", []);
+  const [paso, setPaso] = useState("lista"); // lista | captura | revision | ver
+  const [borrador, setBorrador] = useState(null);
+  const [verId, setVerId] = useState(null);
+  const [mesF, setMesF] = useState("todos");
+  const [anioF, setAnioF] = useState("todos");
+  const listos = capturasListas && saldoListo;
+  const saldoDoc = saldoDocs.find((s) => s.id === SALDO_ID) || null;
+  const saldoNow = saldoDoc ? saldoActual(saldoDoc.monto, capturas) : null;
+  const todos = useMemo(() => capturas.reduce((o, c) => { const t = totalesDe(c.movimientos || []); return { i: o.i + t.ingresos, e: o.e + t.egresos }; }, { i: 0, e: 0 }), [capturas]);
+  const filtradas = aiFiltrarMesAnio(capturas, mesF, anioF);
+  const columnasLista = [
+    { titulo: "Fecha", valor: (c) => c.fecha }, { titulo: "Encargado", valor: (c) => c.encargado }, { titulo: "Movimientos", valor: (c) => (c.movimientos || []).length },
+    { titulo: "Ingresos", valor: (c) => aiMoney(totalesDe(c.movimientos || []).ingresos) }, { titulo: "Egresos", valor: (c) => aiMoney(totalesDe(c.movimientos || []).egresos) },
+  ];
+  const agregarEncargado = (n) => setEncargados((p) => (p.includes(n) ? p : [...p, n]));
+  const eliminarEncargado = (n) => setEncargados((p) => p.filter((x) => x !== n));
+
+  const finalizar = () => {
+    const ahora = new Date().toISOString();
+    const quien = getUsername();
+    if (!saldoDoc) setSaldoDocs((p) => [...p, { id: SALDO_ID, monto: borrador.saldoInicial || 0, creadoEn: ahora, creadoPor: quien }]);
+    setCapturas((p) => [...p, { id: `tes-${Date.now()}`, fecha: borrador.fecha, encargado: borrador.encargado, movimientos: borrador.movimientos, creadoEn: ahora, creadoPor: quien }]);
+    setBorrador(null);
+    setPaso("lista");
+  };
+  const capturaVista = paso === "ver" ? capturas.find((c) => c.id === verId) : null;
+  const saldoPrevio = saldoDoc ? saldoNow : borrador?.saldoInicial ?? null;
+  const subtitulo = { lista: "Panel principal", captura: "Nueva captura", revision: "Revisión", ver: "Detalle" }[paso];
+
+  return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Tesorería</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{subtitulo}</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <div style={sx.h1row}>
+          <h1 style={sx.h1}>Tesorería</h1>
+          {paso === "lista" && listos && <AIBotonNuevo label="Nueva captura" enProceso={false} onClick={() => { setBorrador(null); setPaso("captura"); }} />}
+        </div>
+        {!listos ? <div style={sx.empty}>Cargando datos…</div> : (
+          <>
+            {paso === "captura" && <TesoreriaForm inicial={borrador} pideSaldo={!saldoDoc} encargados={encargados} onAgregarEncargado={agregarEncargado} onEliminarEncargado={eliminarEncargado} onSiguiente={(d) => { setBorrador(d); setPaso("revision"); }} onCancelar={() => { setBorrador(null); setPaso("lista"); }} />}
+            {paso === "revision" && borrador && <TesoreriaRevision datos={borrador} saldoPrevio={saldoPrevio} onAtras={() => setPaso("captura")} onFinalizar={finalizar} />}
+            {paso === "ver" && capturaVista && <TesoreriaRevision datos={capturaVista} soloLectura onCerrar={() => { setVerId(null); setPaso("lista"); }} />}
+            {paso === "lista" && (
+              <>
+                <div style={{ ...sx.repCard, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Saldo actual</div>
+                    <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 34, fontWeight: 700, color: saldoNow == null ? T.muted : saldoNow < 0 ? T.bad : T.brand, marginTop: 2 }}>{saldoNow == null ? "—" : aiMoney(saldoNow)}</div>
+                  </div>
+                  {saldoDoc
+                    ? <div style={{ fontSize: 12, color: T.muted, display: "grid", gap: 3, textAlign: "right" }}>
+                        <span>Saldo inicial {aiMoney(saldoDoc.monto)}</span>
+                        <span>Ingresos acumulados <strong style={{ color: T.ok }}>{aiMoney(todos.i)}</strong></span>
+                        <span>Egresos acumulados <strong style={{ color: T.bad }}>{aiMoney(todos.e)}</strong></span>
+                      </div>
+                    : <div style={{ fontSize: 12, color: T.muted, maxWidth: 320 }}>Todavía no hay saldo inicial: se te pedirá en tu primera captura.</div>}
+                </div>
+                {capturas.length === 0 ? <div style={sx.empty}>Aún no hay capturas de tesorería.</div> : (
+                  <>
+                    <AIListToolbar items={capturas} mes={mesF} setMes={setMesF} anio={anioF} setAnio={setAnioF} titulo="Tesorería" columnas={columnasLista} filasExport={filtradas} />
+                    {filtradas.length === 0 ? <div style={sx.empty}>No hay capturas en ese periodo.</div> : (
+                      <div style={{ display: "grid", gap: 8 }}>
+                        {[...filtradas].sort((a, b) => b.fecha.localeCompare(a.fecha) || String(b.id).localeCompare(String(a.id))).map((c) => {
+                          const t = totalesDe(c.movimientos || []);
+                          return (
+                            <div key={c.id} style={sx.repCard}>
+                              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                                <div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <strong>{c.fecha}</strong>
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.ok, background: T.okSoft }}>Finalizado</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{(c.movimientos || []).length} movimiento{(c.movimientos || []).length === 1 ? "" : "s"} · ingresos {aiMoney(t.ingresos)} · egresos {aiMoney(t.egresos)} · capturó {c.encargado}</div>
+                                </div>
+                                <button onClick={() => { setVerId(c.id); setPaso("ver"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 10px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </main>
+    </>
+  );
+}
+
+/* ============================================================
+   NÓMINAS — pago semanal (viernes a jueves) de todo el personal dado de alta en
+   Cuenta › Configuración de cuenta › Alta de personal (de sucursal y fuera de sucursal).
+   La ven los niveles alto y medio. Flujo: lista → "+ Nueva nómina" → captura de horas por día
+   (con "+" por empleado para percepciones y descuentos) → Siguiente (detalle con el sueldo final)
+   → Finalizar. "Guardar" deja la semana en proceso para continuarla después.
+   Cálculo en nominaUtil.js.
+   ============================================================ */
+const NOM_COLS = "minmax(200px, 1.6fr) repeat(7, 62px) 76px 108px 96px 32px";
+const nomMoney = (n) => aiMoney(n);
+const sortFilas = (a, b) => ordenGrupo(a.sucursal) - ordenGrupo(b.sucursal) || a.sucursal.localeCompare(b.sucursal, "es") || a.nombre.localeCompare(b.nombre, "es");
+
+function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onCancelar }) {
+  const recientes = useMemo(() => semanasRecientes(14), []);
+  const libres = recientes.filter((s) => !ocupadas.has(s));
+  const [semana, setSemana] = useState(inicial?.semana || (libres.includes(ultimaSemanaCompleta()) ? ultimaSemanaCompleta() : libres[0] || ""));
+  const [filas, setFilas] = useState(() => {
+    const activos = empleados.filter((e) => e && !e.fechaBaja).map((e) => filaDeEmpleado(e, jornadaNeta(horarioDe(e))));
+    if (!inicial?.filas) return activos.sort(sortFilas);
+    // Continuar: lo ya capturado se conserva y entran los empleados que se dieron de alta mientras tanto.
+    const ya = new Set(inicial.filas.map(claveFila));
+    return [...inicial.filas, ...activos.filter((f) => !ya.has(claveFila(f)))].sort(sortFilas);
+  });
+  const [filtro, setFiltro] = useState("todos");
+  const [abiertos, setAbiertos] = useState(() => new Set());
+  const grupos = useMemo(() => [...new Set(filas.map((f) => f.sucursal))].sort((a, b) => ordenGrupo(a) - ordenGrupo(b) || a.localeCompare(b, "es")), [filas]);
+  const visibles = filas.filter((f) => filtro === "todos" || f.sucursal === filtro);
+
+  const cambiar = (clave, fn) => setFilas((p) => p.map((f) => (claveFila(f) === clave ? fn(f) : f)));
+  const ponerHora = (clave, d, v) => cambiar(clave, (f) => { let t = limpiarMonto(v); if (tesNum(t) > 24) t = "24"; const horas = [...f.horas]; horas[d] = t; return { ...f, horas }; });
+  const ponerConcepto = (clave, k, v) => cambiar(clave, (f) => ({ ...f, conceptos: { ...f.conceptos, [k]: limpiarMonto(v) } }));
+  const autoFila = (clave) => cambiar(clave, autocompletarHoras);
+  // A todos los que se están mostrando y todavía no tienen horas capturadas.
+  const autoTodos = () => setFilas((p) => p.map((f) => (visibles.some((v) => claveFila(v) === claveFila(f)) && !f.horas.some((h) => tesNum(h) > 0) ? autocompletarHoras(f) : f)));
+  const alternar = (clave) => setAbiertos((p) => { const n = new Set(p); if (n.has(clave)) n.delete(clave); else n.add(clave); return n; });
+  const enfocar = (vi, d) => { const el = document.querySelector(`[data-nom="${vi}-${d}"]`); if (el) el.focus(); };
+  const alTeclear = (e, vi, d) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (d < 6) enfocar(vi, d + 1); else enfocar(vi + 1, 0);
+  };
+
+  const hayHoras = filas.some((f) => f.horas.some((h) => tesNum(h) > 0));
+  const ok = !!semana && hayHoras;
+  const total = totalNomina(filas);
+  const datos = () => ({ id: inicial?.id, semana, filas });
+  const th = { fontSize: 11, fontWeight: 700, color: T.muted, textAlign: "center" };
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>{inicial?.id ? "Continuando la nómina" : "Nueva nómina"}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
+          <TField label="Semana (viernes a jueves)">
+            <select value={semana} onChange={(e) => setSemana(e.target.value)} disabled={!!inicial?.id} className="sel" style={sx.sel}>
+              {recientes.map((s) => <option key={s} value={s} disabled={ocupadas.has(s) && s !== inicial?.semana}>{etiquetaSemana(s)}{ocupadas.has(s) && s !== inicial?.semana ? " · ya capturada" : ""}</option>)}
+            </select>
+          </TField>
+          <TField label="Mostrar">
+            <select value={filtro} onChange={(e) => setFiltro(e.target.value)} className="sel" style={sx.sel}>
+              <option value="todos">Todo el personal ({filas.length})</option>
+              {grupos.map((g) => <option key={g} value={g}>{g}</option>)}
+            </select>
+          </TField>
+        </div>
+      </div>
+
+      <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ fontWeight: 600, fontSize: 14 }}>Horas trabajadas por día</div>
+          {filas.length > 0 && <button onClick={autoTodos} title="Pone la jornada completa en los días que trabaja cada persona (solo a quienes aún no tienen horas)" className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>Autocompletar a todos</button>}
+        </div>
+        {filas.length === 0 ? <div style={sx.empty}>Todavía no hay personal dado de alta. Se da de alta en Cuenta › Configuración de cuenta › Alta de personal.</div> : (
+          <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: 1130, display: "grid", gap: 6 }}>
+              <div style={{ display: "grid", gridTemplateColumns: NOM_COLS, gap: 6, alignItems: "end" }}>
+                <div style={{ ...th, textAlign: "left" }}>Empleado</div>
+                {DIAS_NOMINA.map((d) => <div key={d} style={th}>{d.slice(0, 3)}</div>)}
+                <div style={th} title="Horas trabajadas ÷ días que trabajó">Descanso</div><div style={th}>Sueldo</div><div /><div />
+              </div>
+              {visibles.map((f, vi) => {
+                const clave = claveFila(f);
+                const c = calcularFila(f);
+                const abierto = abiertos.has(clave);
+                const conExtras = CONCEPTOS_NOMINA.some((x) => tesNum(f.conceptos[x.key]) > 0);
+                const primero = vi === 0 || visibles[vi - 1].sucursal !== f.sucursal;
+                const delGrupo = primero ? visibles.filter((x) => x.sucursal === f.sucursal) : [];
+                const esFuera = esAreaFuera(f.sucursal);
+                return (
+                  <Fragment key={clave}>
+                  {primero && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, background: T.brandSoft, borderRadius: 9, padding: "8px 12px", marginTop: vi === 0 ? 0 : 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, fontSize: 13, color: T.ink }}>
+                        <Ico name={esFuera ? (AREAS_PERSONAL.find((a) => a.nombre === f.sucursal)?.icono || "Building2") : "Store"} size={16} color={T.brand} />
+                        {esFuera ? `Personal ${f.sucursal === SUCURSAL_FUERA ? "fuera de sucursal" : f.sucursal.toLowerCase()}` : `Sucursal · ${f.sucursal}`}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: T.inkSoft }}>{delGrupo.length} empleado{delGrupo.length === 1 ? "" : "s"} · total <strong>{nomMoney(totalNomina(delGrupo))}</strong></div>
+                    </div>
+                  )}
+                  <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: NOM_COLS, gap: 6, alignItems: "center" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</div>
+                        <div style={{ fontSize: 10.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.sucursal}{f.puesto ? ` · ${f.puesto}` : ""}{f.sinHorario ? " · sin horario (se asumen 8 h por día)" : ""}{!f.sueldoSemanal ? " · sin sueldo" : ""}</div>
+                      </div>
+                      {DIAS_NOMINA.map((dia, d) => (
+                        <input key={dia} data-nom={`${vi}-${d}`} value={f.horas[d]} onChange={(e) => ponerHora(clave, d, e.target.value)} onKeyDown={(e) => alTeclear(e, vi, d)} inputMode="decimal" placeholder="0" className="sel" style={{ ...sx.sel, padding: "7px 4px", fontSize: 12.5, textAlign: "center", minWidth: 0 }} />
+                      ))}
+                      <div style={{ textAlign: "center", fontSize: 12.5, color: T.inkSoft }}>{fmtHoras(c.descanso)}</div>
+                      <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 700, color: c.final < 0 ? T.bad : T.ink }}>{nomMoney(c.final)}</div>
+                      <button onClick={() => autoFila(clave)} title={`Pone ${fmtHoras(f.horasDia)} h en cada día que trabaja (${textoDias(DIAS_GETDAY_NOMINA.filter((g, i) => (f.diasLab || [])[i]))})`} style={{ background: "#fff", border: `1px solid ${T.brand}`, borderRadius: 7, cursor: "pointer", padding: "6px 4px", fontSize: 11.5, fontWeight: 700, color: T.brand, fontFamily: "inherit" }}>Autocompletar</button>
+                      <button onClick={() => alternar(clave)} title={abierto ? "Ocultar percepciones y descuentos" : "Percepciones y descuentos"} style={{ background: abierto || conExtras ? T.brandSoft : "none", border: `1px solid ${abierto || conExtras ? T.brand : T.line}`, borderRadius: 7, cursor: "pointer", lineHeight: 0, padding: 5 }}><Ico name={abierto ? "Minus" : "Plus"} size={14} color={T.brand} /></button>
+                    </div>
+                    {abierto && (
+                      <div style={{ background: T.paper, borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
+                        <div style={{ fontSize: 11.5, color: T.inkSoft }}>Sueldo semanal <strong>{nomMoney(f.sueldoSemanal)}</strong> · bono fijo <strong>{nomMoney(f.bonoFijo)}</strong> · {fmtHoras(c.trabajadas)} h trabajadas + {fmtHoras(c.descanso)} h de descanso = sueldo base <strong>{nomMoney(c.base)}</strong></div>
+                        {["suma", "resta"].map((tipo) => (
+                          <div key={tipo}>
+                            <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: tipo === "suma" ? T.ok : T.bad, marginBottom: 6 }}>{tipo === "suma" ? "Se suman" : "Se descuentan"}</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+                              {CONCEPTOS_NOMINA.filter((x) => x.tipo === tipo).map((x) => (
+                                <TField key={x.key} label={x.nombre}><input value={f.conceptos[x.key] || ""} onChange={(e) => ponerConcepto(clave, x.key, e.target.value)} inputMode="decimal" placeholder="$0.00" className="sel" style={{ ...sx.sel, textAlign: "right" }} /></TField>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  </Fragment>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
+          <div style={{ fontSize: 11.5, color: T.muted }}>Horas con decimales (7.5 = 7 h 30 min). Con Enter pasas al siguiente día. "Autocompletar" pone la jornada completa en los días que trabaja la persona. El descanso pagado es la suma de las horas ÷ los días que trabajó.</div>
+          <div style={{ fontSize: 13 }}>Total a pagar <strong style={{ fontSize: 16, color: T.brand }}>{nomMoney(total)}</strong></div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={onCancelar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+        <button onClick={() => semana && onGuardar(datos())} disabled={!semana} title="Guarda lo capturado y la deja en proceso para continuarla después" className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: semana ? T.brand : T.muted, border: `1px solid ${semana ? T.brand : T.line}`, cursor: semana ? "pointer" : "not-allowed" }}>Guardar</button>
+        <button onClick={() => ok && onSiguiente(datos())} disabled={!ok} title={ok ? "" : "Captura las horas de al menos un empleado"} className="actbtn" style={{ ...sx.actbtn, background: ok ? T.ink : T.line, color: ok ? "#fff" : T.muted, cursor: ok ? "pointer" : "not-allowed" }}>Siguiente</button>
+      </div>
+    </div>
+  );
+}
+
+function columnasNomina() {
+  return [
+    { titulo: "Empleado", valor: (f) => f.nombre }, { titulo: "Sucursal", valor: (f) => f.sucursal }, { titulo: "Puesto", valor: (f) => f.puesto || "" },
+    ...DIAS_NOMINA.map((d, i) => ({ titulo: d.slice(0, 3), valor: (f) => f.horas[i] || 0 })),
+    { titulo: "Horas", valor: (f) => fmtHoras(calcularFila(f).trabajadas) }, { titulo: "Descanso", valor: (f) => fmtHoras(calcularFila(f).descanso) },
+    { titulo: "Sueldo base", valor: (f) => nomMoney(calcularFila(f).base) }, { titulo: "Bono fijo", valor: (f) => nomMoney(calcularFila(f).bono) },
+    { titulo: "Percepciones", valor: (f) => nomMoney(calcularFila(f).percepciones) }, { titulo: "Descuentos", valor: (f) => nomMoney(calcularFila(f).deducciones) },
+    { titulo: "Sueldo final", valor: (f) => nomMoney(calcularFila(f).final) },
+  ];
+}
+
+function NominasRevision({ datos, soloLectura, onAtras, onFinalizar, onCerrar }) {
+  const filas = [...datos.filas].filter((f) => f.horas.some((h) => tesNum(h) > 0) || calcularFila(f).percepciones || calcularFila(f).deducciones).sort(sortFilas);
+  const total = totalNomina(filas);
+  const titulo = `Nomina ${datos.semana}`;
+  const th = { padding: "7px 8px", textAlign: "right", fontSize: 11.5, whiteSpace: "nowrap" };
+  const td = { padding: "7px 8px", borderBottom: `1px solid ${T.lineSoft}`, fontSize: 12.5, textAlign: "right", whiteSpace: "nowrap" };
+  const sinPagar = datos.filas.length - filas.length;
+  return (
+    <div style={{ ...sx.repCard, display: "grid", gap: 16 }}>
+      {soloLectura && <PrintHeader titulo={titulo} />}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{soloLectura ? "Detalle de la nómina" : "Revisión de la nómina"}</div>
+        {soloLectura && <AIExportMenu titulo={titulo} columnas={columnasNomina()} filas={filas} />}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, fontSize: 13 }}>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Semana</div><strong>{etiquetaSemana(datos.semana)}</strong></div>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Empleados con pago</div><strong>{filas.length}</strong></div>
+        <div><div style={{ color: T.muted, fontSize: 11 }}>Total a pagar</div><strong style={{ color: T.brand, fontSize: 16 }}>{nomMoney(total)}</strong></div>
+      </div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: T.paper }}>
+            <th style={{ ...th, textAlign: "left" }}>Empleado</th><th style={th}>Horas</th><th style={th}>Descanso</th><th style={th}>Sueldo base</th><th style={th}>Bono fijo</th><th style={th}>Percepciones</th><th style={th}>Descuentos</th><th style={th}>Sueldo final</th>
+          </tr></thead>
+          <tbody>
+            {filas.map((f, i) => {
+              const c = calcularFila(f);
+              const extras = CONCEPTOS_NOMINA.filter((x) => tesNum(f.conceptos[x.key]) > 0).map((x) => `${x.nombre} ${nomMoney(tesNum(f.conceptos[x.key]))}`);
+              const primero = i === 0 || filas[i - 1].sucursal !== f.sucursal;
+              const delGrupo = primero ? filas.filter((x) => x.sucursal === f.sucursal) : [];
+              const esFuera = esAreaFuera(f.sucursal);
+              return (
+                <Fragment key={claveFila(f)}>
+                {primero && (
+                  <tr><td colSpan={8} style={{ padding: "9px 8px", background: T.brandSoft, fontSize: 12.5, fontWeight: 700, textAlign: "left" }}>
+                    {esFuera ? `Personal ${f.sucursal === SUCURSAL_FUERA ? "fuera de sucursal" : f.sucursal.toLowerCase()}` : `Sucursal · ${f.sucursal}`} <span style={{ fontWeight: 500, color: T.inkSoft }}>· {delGrupo.length} empleado{delGrupo.length === 1 ? "" : "s"} · total {nomMoney(totalNomina(delGrupo))}</span>
+                  </td></tr>
+                )}
+                <tr>
+                  <td style={{ ...td, textAlign: "left", whiteSpace: "normal" }}>
+                    <div style={{ fontWeight: 600 }}>{f.nombre}</div>
+                    <div style={{ fontSize: 10.5, color: T.muted }}>{f.sucursal}{f.puesto ? ` · ${f.puesto}` : ""}</div>
+                    {extras.length > 0 && <div style={{ fontSize: 10.5, color: T.inkSoft, marginTop: 2 }}>{extras.join(" · ")}</div>}
+                  </td>
+                  <td style={td}>{fmtHoras(c.trabajadas)}</td><td style={td}>{fmtHoras(c.descanso)}</td><td style={td}>{nomMoney(c.base)}</td><td style={td}>{nomMoney(c.bono)}</td>
+                  <td style={{ ...td, color: c.percepciones ? T.ok : T.muted }}>{nomMoney(c.percepciones)}</td><td style={{ ...td, color: c.deducciones ? T.bad : T.muted }}>{nomMoney(c.deducciones)}</td>
+                  <td style={{ ...td, fontWeight: 700, color: c.final < 0 ? T.bad : T.ink }}>{nomMoney(c.final)}</td>
+                </tr>
+                </Fragment>
+              );
+            })}
+            <tr><td style={{ ...td, textAlign: "left", fontWeight: 700 }} colSpan={7}>Total a pagar</td><td style={{ ...td, fontWeight: 700, color: T.brand }}>{nomMoney(total)}</td></tr>
+          </tbody>
+        </table>
+      </div>
+      {sinPagar > 0 && <div style={{ fontSize: 11.5, color: T.muted }}>{sinPagar} empleado{sinPagar === 1 ? "" : "s"} sin horas ni conceptos esta semana no aparece{sinPagar === 1 ? "" : "n"} en el detalle y no se paga{sinPagar === 1 ? "" : "n"}.</div>}
+      <div className="noprint" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        {soloLectura ? (
+          <button onClick={onCerrar} className="actbtn" style={{ ...sx.actbtn, background: T.ink, color: "#fff" }}>Cerrar</button>
+        ) : (
+          <>
+            <button onClick={onAtras} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>‹ Atrás</button>
+            <button onClick={onFinalizar} className="actbtn" style={{ ...sx.actbtn, background: T.ink, color: "#fff" }}>Finalizar</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Nominas({ onCerrarSesion }) {
+  const [nominas, setNominas, nominasListas] = usePersistedCollection("nominas_semanas");
+  const [empleados, setEmpleados] = useState(null); // se pide a mano para saber cuándo ya llegó
+  const [paso, setPaso] = useState("lista"); // lista | captura | revision | ver
+  const [borrador, setBorrador] = useState(null);
+  const [verId, setVerId] = useState(null);
+  const [mesF, setMesF] = useState("todos");
+  const [anioF, setAnioF] = useState("todos");
+  useEffect(() => {
+    apiFetch("/api/lists/empleados_asistencia").then((r) => r.json()).then((d) => setEmpleados(Array.isArray(d) ? d : [])).catch(() => setEmpleados([]));
+  }, []);
+  const listos = nominasListas && empleados !== null;
+  const ocupadas = useMemo(() => new Set(nominas.filter((n) => n.id !== borrador?.id).map((n) => n.semana)), [nominas, borrador]);
+  const conFecha = nominas.map((n) => ({ ...n, fecha: n.semana }));
+  const filtradas = aiFiltrarMesAnio(conFecha, mesF, anioF);
+  const columnasLista = [
+    { titulo: "Semana", valor: (n) => etiquetaSemana(n.semana) }, { titulo: "Estado", valor: (n) => (n.finalizado ? "Finalizado" : "En proceso") },
+    { titulo: "Empleados", valor: (n) => n.filas.length }, { titulo: "Total a pagar", valor: (n) => nomMoney(totalNomina(n.filas)) },
+  ];
+  const guardar = (datos, finalizado) => {
+    const id = idSemana(datos.semana);
+    const ahora = new Date().toISOString();
+    setNominas((p) => {
+      const ex = p.find((x) => x.id === id);
+      const doc = { ...(ex || {}), id, semana: datos.semana, filas: datos.filas, finalizado, creadoPor: ex?.creadoPor || getUsername(), creadoEn: ex?.creadoEn || ahora, actualizadoEn: ahora, ...(finalizado ? { finalizadoPor: getUsername() } : {}) };
+      return ex ? p.map((x) => (x.id === id ? doc : x)) : [...p, doc];
+    });
+    setBorrador(null);
+    setPaso("lista");
+  };
+  const vista = paso === "ver" ? nominas.find((n) => n.id === verId) : null;
+  const subtitulo = { lista: "Panel principal", captura: "Captura de horas", revision: "Detalle", ver: "Detalle" }[paso];
+  return (
+    <>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Nóminas</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>{subtitulo}</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}>
+        <div style={sx.h1row}>
+          <h1 style={sx.h1}>Nóminas</h1>
+          {paso === "lista" && listos && <AIBotonNuevo label="Nueva nómina" enProceso={false} onClick={() => { setBorrador(null); setPaso("captura"); }} />}
+        </div>
+        {!listos ? <div style={sx.empty}>Cargando datos…</div> : (
+          <>
+            {paso === "captura" && <NominasForm key={borrador?.id || "nueva"} inicial={borrador} empleados={empleados} ocupadas={ocupadas} onSiguiente={(d) => { setBorrador({ ...borrador, ...d }); setPaso("revision"); }} onGuardar={(d) => guardar(d, false)} onCancelar={() => { setBorrador(null); setPaso("lista"); }} />}
+            {paso === "revision" && borrador && <NominasRevision datos={borrador} onAtras={() => setPaso("captura")} onFinalizar={() => guardar(borrador, true)} />}
+            {paso === "ver" && vista && <NominasRevision datos={vista} soloLectura onCerrar={() => { setVerId(null); setPaso("lista"); }} />}
+            {paso === "lista" && (
+              nominas.length === 0 ? <div style={sx.empty}>Aún no hay nóminas registradas.</div> : (
+                <>
+                  <AIListToolbar items={conFecha} mes={mesF} setMes={setMesF} anio={anioF} setAnio={setAnioF} titulo="Nóminas" columnas={columnasLista} filasExport={filtradas} />
+                  {filtradas.length === 0 ? <div style={sx.empty}>No hay nóminas en ese periodo.</div> : (
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {[...filtradas].sort((a, b) => b.semana.localeCompare(a.semana)).map((n) => (
+                        <div key={n.id} style={sx.repCard}>
+                          <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, alignItems: "center" }}>
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                <strong>{etiquetaSemana(n.semana)}</strong>
+                                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: n.finalizado ? T.ok : T.warn, background: n.finalizado ? T.okSoft : T.warnSoft }}>{n.finalizado ? "Finalizado" : "En proceso"}</span>
+                              </div>
+                              <div style={{ fontSize: 12, color: T.muted, marginTop: 3 }}>{n.filas.length} empleado{n.filas.length === 1 ? "" : "s"} · total a pagar {nomMoney(totalNomina(n.filas))}</div>
+                            </div>
+                            {n.finalizado
+                              ? <button onClick={() => { setVerId(n.id); setPaso("ver"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 10px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+                              : <button onClick={() => { setBorrador(n); setPaso("captura"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 10px", background: T.brand }}>Continuar</button>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )
+            )}
+          </>
+        )}
+      </main>
+    </>
+  );
+}
+
+/* ============================================================
    NÓMINA SUCURSALES — llegan aquí los resúmenes de lo que cada sucursal
    captura en "Registro asistencia". Misma mecánica que "Recepción de Cortes":
    arriba se eligen opciones en menús desplegables y abajo aparece la
@@ -6891,7 +7493,7 @@ function NominaSucursales({ onCerrarSesion }) {
       setSobreDocs((p) => ({ ...p, [d.id]: d }));
     } catch (e) { window.alert(e.message); }
   };
-  const guardarHorario = (suc, nombre, entrada, salida) => llamarNomina("horario", { sucursal: suc, nombre, entrada, salida });
+  const guardarHorario = (suc, nombre, entrada, salida, sueldoSemanal, bonoFijo, dias) => llamarNomina("horario", { sucursal: suc, nombre, entrada, salida, sueldoSemanal, bonoFijo, diasLaborales: dias });
   const confirmarBaja = (datos) => llamarNomina("baja", datos);
   const reactivar = async (suc, nombre) => {
     if (!window.confirm(`¿Reactivar a ${nombre}? Volverá a aparecer en la captura de asistencia de ${suc}.`)) return;
@@ -6906,7 +7508,7 @@ function NominaSucursales({ onCerrarSesion }) {
 
   const cerrar = () => { setVer(""); setDiaAbierto(null); };
   const lista = sucursal === TODAS_SUC ? sucursales : [sucursal];
-  const subtitulo = { "": "Panel principal", dia: "Por día", resumen: "Resumen general", rotacion: "Rotación de personal", bajas: "Bajas y alertas", horarios: "Horarios del personal" }[ver];
+  const subtitulo = { "": "Panel principal", dia: "Por día", resumen: "Resumen general", rotacion: "Rotación de personal", bajas: "Bajas y alertas", horarios: "Alta de personal" }[ver];
 
   const selector = (valor, onChange, opciones, ancho) => (
     <select value={valor} onChange={(e) => onChange(e.target.value)} className="sel" style={{ ...nomSel, minWidth: ancho || nomSel.minWidth }}>
@@ -7183,45 +7785,81 @@ function NominaResumen({ docs, empleados, sucursal, lista, desde, hasta, onCerra
   );
 }
 
+/* Marcadores de los días que trabaja la persona (lunes a domingo). */
+function DiasChips({ value, onChange }) {
+  const sel = value || [];
+  const alternar = (n) => onChange(sel.includes(n) ? sel.filter((x) => x !== n) : [...sel, n]);
+  return (
+    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "center" }}>
+      {DIAS_SEMANA_LMD.map((d) => {
+        const on = sel.includes(d.n);
+        return <button key={d.n} type="button" onClick={() => alternar(d.n)} aria-pressed={on} style={{ border: `1px solid ${on ? T.brand : T.line}`, background: on ? T.brand : "#fff", color: on ? "#fff" : T.muted, borderRadius: 7, padding: "5px 7px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{d.corto}</button>;
+      })}
+    </div>
+  );
+}
+
 /* Horarios del personal: la hora de entrada y salida que le toca a cada persona.
    La sucursal no la ve; solo captura la hora real y el sistema compara. */
 function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onCerrar }) {
   const personal = empleados.filter((e) => lista.includes(e.sucursal) && !e.fechaBaja)
-    .sort((x, y) => x.sucursal.localeCompare(y.sucursal, "es") || x.nombre.localeCompare(y.nombre, "es"));
+    .sort((x, y) => ordenGrupo(x.sucursal) - ordenGrupo(y.sucursal) || x.sucursal.localeCompare(y.sucursal, "es") || x.nombre.localeCompare(y.nombre, "es"));
   const [edit, setEdit] = useState({}); // clave -> { entrada, salida }
   const [guardando, setGuardando] = useState("");
   const clave = (e) => `${e.sucursal}|${e.nombre}`;
-  const valor = (e) => edit[clave(e)] || { entrada: e.horaEntrada || "", salida: e.horaSalida || "" };
+  const enTexto = (n) => (n == null || n === "" ? "" : String(n));
+  const valor = (e) => edit[clave(e)] || { entrada: e.horaEntrada || "", salida: e.horaSalida || "", sueldo: enTexto(e.sueldoSemanal), bono: enTexto(e.bonoFijo), dias: diasLaborales(e) };
+  const mismosDias = (a, b) => [...a].sort().join() === [...b].sort().join();
   const poner = (e, campo, v) => setEdit((p) => ({ ...p, [clave(e)]: { ...valor(e), [campo]: v } }));
   const guardar = async (e) => {
     const v = valor(e);
     if ((v.entrada && !v.salida) || (!v.entrada && v.salida)) { window.alert("Captura la hora de entrada y la de salida completas (HH:MM)."); return; }
+    if (!v.dias.length) { window.alert("Marca al menos un día de trabajo."); return; }
     setGuardando(clave(e));
-    try { await onGuardar(e.sucursal, e.nombre, v.entrada, v.salida); setEdit((p) => { const { [clave(e)]: _, ...resto } = p; return resto; }); }
+    try { await onGuardar(e.sucursal, e.nombre, v.entrada, v.salida, v.sueldo, v.bono, v.dias); setEdit((p) => { const { [clave(e)]: _, ...resto } = p; return resto; }); }
     catch (err) { window.alert(err.message); }
     setGuardando("");
   };
   const columnas = [
     { titulo: "Sucursal", valor: (e) => e.sucursal }, { titulo: "Empleado", valor: (e) => e.nombre }, { titulo: "Puesto", valor: (e) => e.puesto || "" },
-    { titulo: "Entrada", valor: (e) => e.horaEntrada || "" }, { titulo: "Salida", valor: (e) => e.horaSalida || "" }, { titulo: "Horas", valor: (e) => (e.horaEntrada ? fmtHoras(horasEsperadas(horarioDe(e))) : "") },
+    { titulo: "Entrada", valor: (e) => e.horaEntrada || "" }, { titulo: "Salida", valor: (e) => e.horaSalida || "" }, { titulo: "Horas de jornada", valor: (e) => (e.horaEntrada ? fmtHoras(jornadaNeta(horarioDe(e))) : "") },
+    { titulo: "Días que trabaja", valor: (e) => textoDias(diasLaborales(e)) },
+    { titulo: "Sueldo semanal", valor: (e) => (e.sueldoSemanal != null ? aiMoney(e.sueldoSemanal) : "") }, { titulo: "Bono fijo", valor: (e) => (e.bonoFijo != null ? aiMoney(e.bonoFijo) : "") },
   ];
   const campoH = { ...sx.sel, width: 90, textAlign: "center", padding: "6px 8px" };
+  const campoM = { ...sx.sel, width: 130, textAlign: "right", padding: "6px 8px" };
   return (
-    <NominaTarjeta titulo="Horarios del personal" tituloArchivo="Horarios del personal" hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Personas", String(personal.length)]]} exportar={{ columnas, filas: personal }} onCerrar={onCerrar}>
+    <NominaTarjeta titulo="Alta de personal" tituloArchivo="Alta de personal" hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Personas", String(personal.length)]]} exportar={{ columnas, filas: personal }} onCerrar={onCerrar}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr>{sucursal === TODAS_SUC && <th style={nomThL}>Sucursal</th>}<th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={nomTh}>Horas</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
+        <thead><tr>{sucursal === TODAS_SUC && <th style={nomThL}>Sucursal</th>}<th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={nomTh} title="Entrada a salida menos 1 hora de descanso">Horas jornada</th><th style={nomTh}>Días que trabaja</th><th style={nomTh}>Sueldo semanal</th><th style={nomTh}>Bono fijo</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
         <tbody>
-          {personal.map((e) => {
+          {personal.map((e, i) => {
+            const primero = i === 0 || personal[i - 1].sucursal !== e.sucursal;
+            const nGrupo = primero ? personal.filter((x) => x.sucursal === e.sucursal).length : 0;
+            const esArea = esAreaFuera(e.sucursal);
             const v = valor(e);
-            const cambiado = (v.entrada || "") !== (e.horaEntrada || "") || (v.salida || "") !== (e.horaSalida || "");
-            const hrs = v.entrada && v.salida && /^\d\d:\d\d$/.test(v.entrada) && /^\d\d:\d\d$/.test(v.salida) ? horasEsperadas({ entrada: v.entrada, salida: v.salida }) : null;
+            const cambiado = (v.entrada || "") !== (e.horaEntrada || "") || (v.salida || "") !== (e.horaSalida || "") || (v.sueldo || "") !== enTexto(e.sueldoSemanal) || (v.bono || "") !== enTexto(e.bonoFijo) || !mismosDias(v.dias, diasLaborales(e));
+            const hrs = v.entrada && v.salida && /^\d\d:\d\d$/.test(v.entrada) && /^\d\d:\d\d$/.test(v.salida) ? jornadaNeta({ entrada: v.entrada, salida: v.salida }) : null;
             return (
-              <tr key={clave(e)}>
+              <Fragment key={clave(e)}>
+              {primero && (
+                <tr><td colSpan={sucursal === TODAS_SUC ? 10 : 9} style={{ padding: "9px 12px", background: T.brandSoft, fontSize: 12.5, fontWeight: 700, textAlign: "left", borderTop: i === 0 ? "none" : `10px solid transparent` }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <Ico name={esArea ? (AREAS_PERSONAL.find((a) => a.nombre === e.sucursal)?.icono || "Building2") : "Store"} size={15} color={T.brand} />
+                    {esArea ? `Personal ${e.sucursal === SUCURSAL_FUERA ? "fuera de sucursal" : e.sucursal.toLowerCase()}` : `Sucursal · ${e.sucursal}`}
+                    <span style={{ fontWeight: 500, color: T.inkSoft }}>· {nGrupo} {nGrupo === 1 ? "persona" : "personas"}</span>
+                  </span>
+                </td></tr>
+              )}
+              <tr>
                 {sucursal === TODAS_SUC && <td style={{ ...nomTdL, color: T.muted }}>{e.sucursal}</td>}
                 <td style={{ ...nomTdL, fontWeight: 600 }}>{e.nombre}</td><td style={{ ...nomTdL, color: T.muted }}>{e.puesto || "—"}</td>
                 <td style={nomTd}><HoraInput value={v.entrada} onChange={(h) => poner(e, "entrada", h)} style={campoH} /></td>
                 <td style={nomTd}><HoraInput value={v.salida} onChange={(h) => poner(e, "salida", h)} style={campoH} /></td>
                 <td style={{ ...nomTd, fontWeight: 600 }}>{hrs === null ? "—" : fmtHoras(hrs)}</td>
+                <td style={{ ...nomTd, minWidth: 210 }}><DiasChips value={v.dias} onChange={(d) => poner(e, "dias", d)} /></td>
+                <td style={nomTd}><MontoInput value={v.sueldo} onChange={(m) => poner(e, "sueldo", m)} className="sel" style={campoM} /></td>
+                <td style={nomTd}><MontoInput value={v.bono} onChange={(m) => poner(e, "bono", m)} className="sel" style={campoM} /></td>
                 <td style={nomTd} className="noprint">
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
                     {cambiado ? <button onClick={() => guardar(e)} disabled={guardando === clave(e)} style={{ ...nomBtn(false), background: T.brand, color: "#fff", border: "none" }}>{guardando === clave(e) ? "Guardando…" : "Guardar"}</button>
@@ -7230,9 +7868,10 @@ function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onC
                   </div>
                 </td>
               </tr>
+              </Fragment>
             );
           })}
-          {personal.length === 0 && <tr><td colSpan={7} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cuenta › Configuración de cuenta › Horarios del personal.</td></tr>}
+          {personal.length === 0 && <tr><td colSpan={10}style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cuenta › Configuración de cuenta › Alta de personal.</td></tr>}
         </tbody>
       </table>
       <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
@@ -7265,21 +7904,25 @@ function ConfigCuentaPantalla({ onCerrarSesion, onVolver, onAbrirHorarios }) {
    sucursales (responsables en Cortes y Registro asistencia); ellas ya no agregan nombres. */
 function AltaPersonal({ sucursales, sucursalInicial, onAlta }) {
   const [abierto, setAbierto] = useState(false);
-  const vacio = { sucursal: sucursalInicial || "", nombre: "", apellidoPaterno: "", apellidoMaterno: "", puesto: "" };
+  // tipo: "" (todavía no elige) | "sucursal" | "oficina" | "almacen" | "produccion"
+  const vacio = { tipo: "", sucursal: sucursalInicial || "", nombre: "", apellidoPaterno: "", apellidoMaterno: "", puesto: "", horaEntrada: "", horaSalida: "", sueldoSemanal: "", bonoFijo: "", diasLaborales: DIAS_LABORALES_DEFECTO };
   const [f, setF] = useState(vacio);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
   const poner = (k) => (e) => setF((p) => ({ ...p, [k]: e.target.value }));
-  const listo = f.sucursal && f.nombre.trim() && f.apellidoPaterno.trim() && f.apellidoMaterno.trim();
+  const ponerMonto = (k) => (e) => setF((p) => ({ ...p, [k]: limpiarMonto(e.target.value) }));
+  const horarioOk = /^\d\d:\d\d$/.test(f.horaEntrada) && /^\d\d:\d\d$/.test(f.horaSalida);
+  const area = AREAS_PERSONAL.find((a) => a.tipo === f.tipo) || null; // Oficina / Almacén / Producción (null = personal de sucursal)
+  const listo = f.tipo && (area || (f.sucursal && !esAreaFuera(f.sucursal))) && f.nombre.trim() && f.apellidoPaterno.trim() && f.apellidoMaterno.trim() && f.puesto.trim() && horarioOk && f.diasLaborales.length > 0 && String(f.sueldoSemanal).trim() !== "";
   const guardar = async () => {
     if (!listo || guardando) return;
     setGuardando(true); setError("");
     try {
-      const r = await apiFetch("/api/nomina/personal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, fechaAlta: fechaLocalISO() }) });
+      const r = await apiFetch("/api/nomina/personal", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...f, sueldoSemanal: tesNum(f.sueldoSemanal), bonoFijo: tesNum(f.bonoFijo), fechaAlta: fechaLocalISO() }) });
       const d = await r.json().catch(() => null);
       if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo dar de alta");
       onAlta(d);
-      setF({ ...vacio, sucursal: f.sucursal });
+      setF({ ...vacio, tipo: f.tipo, sucursal: f.sucursal });
     } catch (err) { setError(err.message); } finally { setGuardando(false); }
   };
   if (!abierto) {
@@ -7296,19 +7939,50 @@ function AltaPersonal({ sucursales, sucursalInicial, onAlta }) {
         <div style={{ fontWeight: 700, fontSize: 14 }}>Agregar personal</div>
         <button onClick={() => { setAbierto(false); setError(""); }} style={{ background: "none", border: "none", cursor: "pointer", lineHeight: 0 }}><Ico name="X" size={17} color={T.muted} /></button>
       </div>
-      <div style={{ fontSize: 11.5, color: T.muted, marginTop: -4 }}>Captura nombre y los dos apellidos. Aparecerá en Cortes (responsables) y en Registro asistencia de esa sucursal. Las sucursales no pueden agregar nombres por su cuenta.</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
-        <select value={f.sucursal} onChange={poner("sucursal")} className="sel" style={campoSel}>
-          <option value="">Sucursal…</option>
-          {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <input value={f.nombre} onChange={poner("nombre")} placeholder="Nombre(s)" className="sel" style={campoSel} />
-        <input value={f.apellidoPaterno} onChange={poner("apellidoPaterno")} placeholder="Apellido paterno" className="sel" style={campoSel} />
-        <input value={f.apellidoMaterno} onChange={poner("apellidoMaterno")} placeholder="Apellido materno" className="sel" style={campoSel} />
-        <input value={f.puesto} onChange={poner("puesto")} onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} placeholder="Puesto" className="sel" style={campoSel} />
-      </div>
-      {error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
-      <div><button onClick={guardar} disabled={!listo || guardando} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: listo && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Dar de alta"}</button></div>
+      {!f.tipo ? (
+        <>
+          <div style={{ fontSize: 12, color: T.muted, marginTop: -4 }}>¿Para dónde es la persona?</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
+            {[["sucursal", "Personal de sucursal", "Aparece en el registro de asistencia de su sucursal y en Cortes (responsables).", "Store"], ...AREAS_PERSONAL.map((a) => [a.tipo, `Personal ${a.nombre.toLowerCase()}`, `${a.desc} Solo entra a Nóminas.`, a.icono])].map(([k, titulo, desc, icono]) => (
+              <button key={k} onClick={() => setF((p) => ({ ...p, tipo: k }))} className="rowbtn" style={{ textAlign: "left", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", cursor: "pointer", fontFamily: "inherit", display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <Ico name={icono} size={22} color={T.brand} />
+                <span><span style={{ display: "block", fontWeight: 700, fontSize: 13.5, color: T.ink }}>{titulo}</span><span style={{ display: "block", fontSize: 11.5, color: T.muted, marginTop: 3 }}>{desc}</span></span>
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: T.muted, marginTop: -4 }}>
+            <span style={{ fontWeight: 700, color: T.brand }}>{area ? `Personal ${area.nombre.toLowerCase()}` : "Personal de sucursal"}</span>
+            <button onClick={() => setF((p) => ({ ...p, tipo: "" }))} style={{ background: "none", border: "none", color: T.brand, fontSize: 12, cursor: "pointer", textDecoration: "underline", padding: 0 }}>cambiar</button>
+          </div>
+          <div style={{ fontSize: 11.5, color: T.muted }}>Captura nombre y los dos apellidos, el puesto, el horario y el sueldo base semanal. {f.tipo === "sucursal" ? "Aparecerá en Cortes (responsables) y en Registro asistencia de esa sucursal; las sucursales no pueden agregar nombres por su cuenta." : `Quedará en el área de ${area?.nombre || "oficina"}; no aparecerá en ninguna sucursal y entra a Nóminas.`}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+            {f.tipo === "sucursal" && (
+              <select value={f.sucursal} onChange={poner("sucursal")} className="sel" style={campoSel}>
+                <option value="">Sucursal…</option>
+                {sucursales.filter((s) => !esAreaFuera(s)).map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
+            <input value={f.nombre} onChange={poner("nombre")} placeholder="Nombre(s)" className="sel" style={campoSel} />
+            <input value={f.apellidoPaterno} onChange={poner("apellidoPaterno")} placeholder="Apellido paterno" className="sel" style={campoSel} />
+            <input value={f.apellidoMaterno} onChange={poner("apellidoMaterno")} placeholder="Apellido materno" className="sel" style={campoSel} />
+            <input value={f.puesto} onChange={poner("puesto")} placeholder="Puesto" className="sel" style={campoSel} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 8 }}>
+            <TField label="Hora de entrada"><HoraInput value={f.horaEntrada} onChange={(h) => setF((p) => ({ ...p, horaEntrada: h }))} style={{ ...campoSel, textAlign: "center" }} /></TField>
+            <TField label="Hora de salida"><HoraInput value={f.horaSalida} onChange={(h) => setF((p) => ({ ...p, horaSalida: h }))} style={{ ...campoSel, textAlign: "center" }} /></TField>
+            <TField label="Horas de jornada"><div style={{ ...campoSel, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: horarioOk ? T.brand : T.muted, background: T.paper }}>{horarioOk ? `${fmtHoras(jornadaNeta({ entrada: f.horaEntrada, salida: f.horaSalida }))} h` : "—"}</div></TField>
+            <TField label="Días que trabaja"><DiasChips value={f.diasLaborales} onChange={(d) => setF((p) => ({ ...p, diasLaborales: d }))} /></TField>
+            <TField label="Sueldo base semanal"><MontoInput value={f.sueldoSemanal} onChange={(v) => setF((p) => ({ ...p, sueldoSemanal: v }))} className="sel" style={{ ...campoSel, textAlign: "right" }} /></TField>
+            <TField label="Bono fijo (semanal)"><MontoInput value={f.bonoFijo} onChange={(v) => setF((p) => ({ ...p, bonoFijo: v }))} onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} className="sel" style={{ ...campoSel, textAlign: "right" }} /></TField>
+          </div>
+          {error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
+          <div><button onClick={guardar} disabled={!listo || guardando} title={listo ? "" : "Completa nombre, apellidos, puesto, horario y sueldo base"} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: listo && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Dar de alta"}</button></div>
+        </>
+      )}
+      {!f.tipo && error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
     </div>
   );
 }
@@ -7317,11 +7991,11 @@ function AltaPersonal({ sucursales, sucursalInicial, onAlta }) {
 function HorariosPersonal({ onCerrarSesion, onVolver }) {
   const [empleados, , setEmpleadosLocal] = usePersistedList("empleados_asistencia", []);
   const [sucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
-  const [sucursal, setSucursal] = useState(TODAS_SUC);
+  const sucursal = TODAS_SUC; // se muestra todo el personal; la sucursal se elige al dar de alta a la persona
   const sucursales = useMemo(() => { const s = new Set(sucursalesAI); empleados.forEach((e) => e.sucursal && s.add(e.sucursal)); return [...s]; }, [sucursalesAI, empleados]);
   const lista = sucursal === TODAS_SUC ? sucursales : [sucursal];
-  const guardar = async (suc, nombre, entrada, salida) => {
-    const r = await apiFetch("/api/nomina/horario", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sucursal: suc, nombre, entrada, salida }) });
+  const guardar = async (suc, nombre, entrada, salida, sueldoSemanal, bonoFijo, dias) => {
+    const r = await apiFetch("/api/nomina/horario", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sucursal: suc, nombre, entrada, salida, sueldoSemanal, bonoFijo, diasLaborales: dias }) });
     const d = await r.json().catch(() => null);
     if (!r.ok || !Array.isArray(d)) throw new Error(d?.error || "No se pudo guardar el horario");
     setEmpleadosLocal(d);
@@ -7342,21 +8016,14 @@ function HorariosPersonal({ onCerrarSesion, onVolver }) {
       <header style={sx.header} className="noprint">
         <div>
           <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Configuración de cuenta</div>
-          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Horarios del personal</div>
+          <div style={{ fontSize: 11, color: T.muted, letterSpacing: "0.04em", textTransform: "uppercase" }}>Alta de personal</div>
         </div>
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
         <button onClick={onVolver} style={sx.back}>‹ Volver</button>
-        <div style={sx.h1row}><h1 style={sx.h1}>Horarios del personal</h1><span style={{ fontSize: 12, color: T.muted }}>hora de entrada y salida asignada a cada empleado</span></div>
-        <div className="noprint" style={{ marginBottom: 18 }}>
-          <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>Sucursal</div>
-          <select value={sucursal} onChange={(e) => setSucursal(e.target.value)} className="sel" style={{ ...sx.sel, width: "auto", minWidth: 220 }}>
-            <option value={TODAS_SUC}>Todas las sucursales</option>
-            {sucursales.map((s) => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
-        <AltaPersonal sucursales={sucursales} sucursalInicial={sucursal === TODAS_SUC ? "" : sucursal} onAlta={setEmpleadosLocal} />
+        <div style={sx.h1row}><h1 style={sx.h1}>Alta de personal</h1><span style={{ fontSize: 12, color: T.muted }}>personal, horario y sueldo de cada empleado</span></div>
+        <AltaPersonal sucursales={sucursales} sucursalInicial="" onAlta={setEmpleadosLocal} />
         <NominaHorarios empleados={empleados} sucursal={sucursal} lista={lista} onGuardar={guardar} onEliminar={eliminar} onCerrar={onVolver} />
       </main>
     </div>
