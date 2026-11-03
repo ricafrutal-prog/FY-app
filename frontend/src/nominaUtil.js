@@ -6,7 +6,7 @@
 //
 // Cálculo (pago por hora):
 //   horas trabajadas = suma de los 7 días (viernes … jueves)
-//   descanso pagado  = horas trabajadas ÷ días que trabajó (con 6 días es lo mismo que ÷ 6)
+//   descanso pagado  = horas trabajadas ÷ 6
 //   valor de la hora = sueldo semanal ÷ (7 × horas de su jornada)   → con la semana completa paga justo el sueldo semanal
 //   sueldo base      = (horas + descanso) × valor de la hora
 //   sueldo final     = sueldo base + bono fijo + percepciones − deducciones
@@ -81,8 +81,7 @@ const horaNum = (v) => Math.min(24, tesNum(v));
 export function calcularFila(f) {
   const horas = (f.horas || []).map(horaNum);
   const trabajadas = redondear(horas.reduce((s, h) => s + h, 0));
-  const diasTrab = horas.filter((h) => h > 0).length;
-  const descanso = diasTrab ? redondear(trabajadas / diasTrab) : 0; // suma de horas ÷ días que trabajó
+  const descanso = redondear(trabajadas / 6); // suma de horas ÷ 6: cada falta baja el descanso
   const hd = Number(f.horasDia) > 0 ? Number(f.horasDia) : HORAS_DIA_DEFECTO;
   const sueldo = tesNum(f.sueldoSemanal);
   const valorHora = sueldo / (7 * hd);

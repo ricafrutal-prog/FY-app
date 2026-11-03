@@ -7110,7 +7110,7 @@ function Tesoreria({ onCerrarSesion }) {
    → Finalizar. "Guardar" deja la semana en proceso para continuarla después.
    Cálculo en nominaUtil.js.
    ============================================================ */
-const NOM_COLS = "minmax(200px, 1.6fr) repeat(7, 62px) 76px 108px 96px 32px";
+const NOM_COLS = "minmax(190px, 1fr) repeat(7, 52px) 62px 92px 32px 32px";
 const nomMoney = (n) => aiMoney(n);
 const sortFilas = (a, b) => ordenGrupo(a.sucursal) - ordenGrupo(b.sucursal) || a.sucursal.localeCompare(b.sucursal, "es") || a.nombre.localeCompare(b.nombre, "es");
 
@@ -7134,8 +7134,6 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
   const ponerHora = (clave, d, v) => cambiar(clave, (f) => { let t = limpiarMonto(v); if (tesNum(t) > 24) t = "24"; const horas = [...f.horas]; horas[d] = t; return { ...f, horas }; });
   const ponerConcepto = (clave, k, v) => cambiar(clave, (f) => ({ ...f, conceptos: { ...f.conceptos, [k]: limpiarMonto(v) } }));
   const autoFila = (clave) => cambiar(clave, autocompletarHoras);
-  // A todos los que se están mostrando y todavía no tienen horas capturadas.
-  const autoTodos = () => setFilas((p) => p.map((f) => (visibles.some((v) => claveFila(v) === claveFila(f)) && !f.horas.some((h) => tesNum(h) > 0) ? autocompletarHoras(f) : f)));
   const alternar = (clave) => setAbiertos((p) => { const n = new Set(p); if (n.has(clave)) n.delete(clave); else n.add(clave); return n; });
   const enfocar = (vi, d) => { const el = document.querySelector(`[data-nom="${vi}-${d}"]`); if (el) el.focus(); };
   const alTeclear = (e, vi, d) => {
@@ -7151,6 +7149,7 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
   const th = { fontSize: 11, fontWeight: 700, color: T.muted, textAlign: "center" };
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      <style>{`.nomrow .nomacc{opacity:0;transition:opacity .12s}.nomrow:hover .nomacc,.nomrow:focus-within .nomacc{opacity:1}@media (hover:none){.nomrow .nomacc{opacity:1}}`}</style>
       <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>{inicial?.id ? "Continuando la nómina" : "Nueva nómina"}</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 12 }}>
@@ -7169,17 +7168,14 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
       </div>
 
       <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ fontWeight: 600, fontSize: 14 }}>Horas trabajadas por día</div>
-          {filas.length > 0 && <button onClick={autoTodos} title="Pone la jornada completa en los días que trabaja cada persona (solo a quienes aún no tienen horas)" className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>Autocompletar a todos</button>}
-        </div>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Horas trabajadas por día</div>
         {filas.length === 0 ? <div style={sx.empty}>Todavía no hay personal dado de alta. Se da de alta en Cuenta › Configuración de cuenta › Alta de personal.</div> : (
           <div style={{ overflowX: "auto" }}>
-            <div style={{ minWidth: 1130, display: "grid", gap: 6 }}>
+            <div style={{ minWidth: 860, display: "grid", gap: 6 }}>
               <div style={{ display: "grid", gridTemplateColumns: NOM_COLS, gap: 6, alignItems: "end" }}>
                 <div style={{ ...th, textAlign: "left" }}>Empleado</div>
                 {DIAS_NOMINA.map((d) => <div key={d} style={th}>{d.slice(0, 3)}</div>)}
-                <div style={th} title="Horas trabajadas ÷ días que trabajó">Descanso</div><div style={th}>Sueldo</div><div /><div />
+                <div style={th} title="Horas trabajadas ÷ 6">Descanso</div><div style={{ ...th, textAlign: "right" }}>Sueldo</div><div /><div />
               </div>
               {visibles.map((f, vi) => {
                 const clave = claveFila(f);
@@ -7201,7 +7197,7 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
                     </div>
                   )}
                   <div style={{ display: "grid", gap: 6, borderTop: `1px solid ${T.lineSoft}`, paddingTop: 6 }}>
-                    <div style={{ display: "grid", gridTemplateColumns: NOM_COLS, gap: 6, alignItems: "center" }}>
+                    <div className="nomrow" style={{ display: "grid", gridTemplateColumns: NOM_COLS, gap: 6, alignItems: "center" }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12.5, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.nombre}</div>
                         <div style={{ fontSize: 10.5, color: T.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.sucursal}{f.puesto ? ` · ${f.puesto}` : ""}{f.sinHorario ? " · sin horario (se asumen 8 h por día)" : ""}{!f.sueldoSemanal ? " · sin sueldo" : ""}</div>
@@ -7211,18 +7207,17 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
                       ))}
                       <div style={{ textAlign: "center", fontSize: 12.5, color: T.inkSoft }}>{fmtHoras(c.descanso)}</div>
                       <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 700, color: c.final < 0 ? T.bad : T.ink }}>{nomMoney(c.final)}</div>
-                      <button onClick={() => autoFila(clave)} title={`Pone ${fmtHoras(f.horasDia)} h en cada día que trabaja (${textoDias(DIAS_GETDAY_NOMINA.filter((g, i) => (f.diasLab || [])[i]))})`} style={{ background: "#fff", border: `1px solid ${T.brand}`, borderRadius: 7, cursor: "pointer", padding: "6px 4px", fontSize: 11.5, fontWeight: 700, color: T.brand, fontFamily: "inherit" }}>Autocompletar</button>
-                      <button onClick={() => alternar(clave)} title={abierto ? "Ocultar percepciones y descuentos" : "Percepciones y descuentos"} style={{ background: abierto || conExtras ? T.brandSoft : "none", border: `1px solid ${abierto || conExtras ? T.brand : T.line}`, borderRadius: 7, cursor: "pointer", lineHeight: 0, padding: 5 }}><Ico name={abierto ? "Minus" : "Plus"} size={14} color={T.brand} /></button>
+                      <button onClick={() => autoFila(clave)} title={`Pone ${fmtHoras(f.horasDia)} h en cada día que trabaja (${textoDias(DIAS_GETDAY_NOMINA.filter((g, i) => (f.diasLab || [])[i]))})`} aria-label="Autocompletar" className="nomacc" style={{ marginLeft: 6, background: "#fff", border: `1px solid ${T.brand}`, borderRadius: 99, cursor: "pointer", lineHeight: 0, padding: 4, width: 26, height: 26, boxSizing: "border-box", display: "flex", alignItems: "center", justifyContent: "center" }}><Ico name="Check" size={14} color={T.brand} /></button>
+                      <button onClick={() => alternar(clave)} title={abierto ? "Ocultar percepciones y descuentos" : "Percepciones y descuentos"} className="nomacc" style={{ marginLeft: 6, opacity: abierto ? 1 : undefined, background: abierto ? T.brandSoft : "none", border: `1px solid ${abierto ? T.brand : T.line}`, borderRadius: 7, cursor: "pointer", lineHeight: 0, padding: 5 }}><Ico name={abierto ? "Minus" : "Plus"} size={14} color={T.brand} /></button>
                     </div>
                     {abierto && (
                       <div style={{ background: T.paper, borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
-                        <div style={{ fontSize: 11.5, color: T.inkSoft }}>Sueldo semanal <strong>{nomMoney(f.sueldoSemanal)}</strong> · bono fijo <strong>{nomMoney(f.bonoFijo)}</strong> · {fmtHoras(c.trabajadas)} h trabajadas + {fmtHoras(c.descanso)} h de descanso = sueldo base <strong>{nomMoney(c.base)}</strong></div>
                         {["suma", "resta"].map((tipo) => (
                           <div key={tipo}>
                             <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: tipo === "suma" ? T.ok : T.bad, marginBottom: 6 }}>{tipo === "suma" ? "Se suman" : "Se descuentan"}</div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
                               {CONCEPTOS_NOMINA.filter((x) => x.tipo === tipo).map((x) => (
-                                <TField key={x.key} label={x.nombre}><input value={f.conceptos[x.key] || ""} onChange={(e) => ponerConcepto(clave, x.key, e.target.value)} inputMode="decimal" placeholder="$0.00" className="sel" style={{ ...sx.sel, textAlign: "right" }} /></TField>
+                                <TField key={x.key} label={x.nombre}><MontoInput value={f.conceptos[x.key] || ""} onChange={(v) => ponerConcepto(clave, x.key, v)} onBlur={() => { const v = f.conceptos[x.key]; if (v && tesNum(v) > 0) ponerConcepto(clave, x.key, tesNum(v).toFixed(2)); }} className="sel" style={{ ...sx.sel, textAlign: "right" }} /></TField>
                               ))}
                             </div>
                           </div>
@@ -7236,8 +7231,7 @@ function NominasForm({ inicial, empleados, ocupadas, onSiguiente, onGuardar, onC
             </div>
           </div>
         )}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
-          <div style={{ fontSize: 11.5, color: T.muted }}>Horas con decimales (7.5 = 7 h 30 min). Con Enter pasas al siguiente día. "Autocompletar" pone la jornada completa en los días que trabaja la persona. El descanso pagado es la suma de las horas ÷ los días que trabajó.</div>
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", flexWrap: "wrap", gap: 10, borderTop: `1px solid ${T.line}`, paddingTop: 10 }}>
           <div style={{ fontSize: 13 }}>Total a pagar <strong style={{ fontSize: 16, color: T.brand }}>{nomMoney(total)}</strong></div>
         </div>
       </div>
@@ -7831,7 +7825,7 @@ function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onC
   return (
     <NominaTarjeta titulo="Alta de personal" tituloArchivo="Alta de personal" hechos={[["Sucursal", sucursal === TODAS_SUC ? "Todas las sucursales" : sucursal], ["Personas", String(personal.length)]]} exportar={{ columnas, filas: personal }} onCerrar={onCerrar}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr>{sucursal === TODAS_SUC && <th style={nomThL}>Sucursal</th>}<th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={nomTh} title="Entrada a salida menos 1 hora de descanso">Horas jornada</th><th style={nomTh}>Días que trabaja</th><th style={nomTh}>Sueldo semanal</th><th style={nomTh}>Bono fijo</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
+        <thead><tr>{sucursal === TODAS_SUC && <th style={nomThL}>Sucursal</th>}<th style={nomThL}>Empleado</th><th style={nomThL}>Puesto</th><th style={nomTh}>Entrada</th><th style={nomTh}>Salida</th><th style={nomTh} title="Entrada a salida menos 1 hora de descanso">Horas jornada</th><th style={nomTh}>Sueldo semanal</th><th style={nomTh}>Bono fijo</th><th style={nomTh} className="noprint">Acción</th></tr></thead>
         <tbody>
           {personal.map((e, i) => {
             const primero = i === 0 || personal[i - 1].sucursal !== e.sucursal;
@@ -7857,7 +7851,6 @@ function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onC
                 <td style={nomTd}><HoraInput value={v.entrada} onChange={(h) => poner(e, "entrada", h)} style={campoH} /></td>
                 <td style={nomTd}><HoraInput value={v.salida} onChange={(h) => poner(e, "salida", h)} style={campoH} /></td>
                 <td style={{ ...nomTd, fontWeight: 600 }}>{hrs === null ? "—" : fmtHoras(hrs)}</td>
-                <td style={{ ...nomTd, minWidth: 210 }}><DiasChips value={v.dias} onChange={(d) => poner(e, "dias", d)} /></td>
                 <td style={nomTd}><MontoInput value={v.sueldo} onChange={(m) => poner(e, "sueldo", m)} className="sel" style={campoM} /></td>
                 <td style={nomTd}><MontoInput value={v.bono} onChange={(m) => poner(e, "bono", m)} className="sel" style={campoM} /></td>
                 <td style={nomTd} className="noprint">
@@ -7868,10 +7861,18 @@ function NominaHorarios({ empleados, sucursal, lista, onGuardar, onEliminar, onC
                   </div>
                 </td>
               </tr>
+              <tr>
+                <td colSpan={sucursal === TODAS_SUC ? 10 : 9} style={{ padding: "0 12px 10px", borderBottom: `1px solid ${T.lineSoft}`, textAlign: "left" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 600, color: T.muted }}>Días que trabaja</span>
+                    <DiasChips value={v.dias} onChange={(d) => poner(e, "dias", d)} />
+                  </div>
+                </td>
+              </tr>
               </Fragment>
             );
           })}
-          {personal.length === 0 && <tr><td colSpan={10}style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cuenta › Configuración de cuenta › Alta de personal.</td></tr>}
+          {personal.length === 0 && <tr><td colSpan={10} style={{ ...nomTd, color: T.muted, padding: 18 }}>No hay personal en esta selección. Se agrega en Cuenta › Configuración de cuenta › Alta de personal.</td></tr>}
         </tbody>
       </table>
       <div style={{ fontSize: 11.5, color: T.muted, marginTop: 12, lineHeight: 1.6 }}>
@@ -7974,9 +7975,12 @@ function AltaPersonal({ sucursales, sucursalInicial, onAlta }) {
             <TField label="Hora de entrada"><HoraInput value={f.horaEntrada} onChange={(h) => setF((p) => ({ ...p, horaEntrada: h }))} style={{ ...campoSel, textAlign: "center" }} /></TField>
             <TField label="Hora de salida"><HoraInput value={f.horaSalida} onChange={(h) => setF((p) => ({ ...p, horaSalida: h }))} style={{ ...campoSel, textAlign: "center" }} /></TField>
             <TField label="Horas de jornada"><div style={{ ...campoSel, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: horarioOk ? T.brand : T.muted, background: T.paper }}>{horarioOk ? `${fmtHoras(jornadaNeta({ entrada: f.horaEntrada, salida: f.horaSalida }))} h` : "—"}</div></TField>
-            <TField label="Días que trabaja"><DiasChips value={f.diasLaborales} onChange={(d) => setF((p) => ({ ...p, diasLaborales: d }))} /></TField>
             <TField label="Sueldo base semanal"><MontoInput value={f.sueldoSemanal} onChange={(v) => setF((p) => ({ ...p, sueldoSemanal: v }))} className="sel" style={{ ...campoSel, textAlign: "right" }} /></TField>
             <TField label="Bono fijo (semanal)"><MontoInput value={f.bonoFijo} onChange={(v) => setF((p) => ({ ...p, bonoFijo: v }))} onKeyDown={(e) => { if (e.key === "Enter") guardar(); }} className="sel" style={{ ...campoSel, textAlign: "right" }} /></TField>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: T.inkSoft }}>Días que trabaja</span>
+            <DiasChips value={f.diasLaborales} onChange={(d) => setF((p) => ({ ...p, diasLaborales: d }))} />
           </div>
           {error && <div style={{ fontSize: 12, color: T.bad }}>{error}</div>}
           <div><button onClick={guardar} disabled={!listo || guardando} title={listo ? "" : "Completa nombre, apellidos, puesto, horario y sueldo base"} className="actbtn" style={{ ...sx.actbtn, background: T.brand, opacity: listo && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Dar de alta"}</button></div>
