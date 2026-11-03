@@ -149,11 +149,13 @@ function checkListRole(req, res, next) {
 // cualquier otra colección le regresa 403, sin importar lo que pida el
 // frontend. Esto es lo que hace la restricción real (no solo ocultar
 // botones en la pantalla).
+// Cuentas de nivel bajo que solo usan Nóminas (mismos permisos que el nivel medio dentro de Nóminas).
+const SOLO_NOMINAS = new Set(["bancos_alma"]);
 function checkCollectionRole(req, res, next) {
   if (NOMINAS_COLECCIONES.has(req.params.name)) {
     const u = req.user?.username;
     const denegar = () => res.status(403).json({ error: "No tienes permiso para esto" });
-    if (req.user.role !== "admin" || !(DUENOS.has(u) || u === "jesus_segura")) return denegar();
+    if (req.user.role !== "admin" || !(DUENOS.has(u) || u === "jesus_segura" || SOLO_NOMINAS.has(u))) return denegar();
     if (DUENOS.has(u)) return next();
     if (req.method === "GET") return next();
     if (req.method === "DELETE") return denegar();
@@ -475,7 +477,7 @@ app.get("/api/lists/:name", requireAuth, checkList, checkListRole, asyncRoute(as
     return res.json((Array.isArray(data) ? data : []).filter((e) => e && e.sucursal === req.user.sucursal && !e.fechaBaja).map(({ horaEntrada, horaSalida, sueldoSemanal, bonoFijo, ...resto }) => resto)); // ni el horario ni el sueldo de cada quien se muestran a la sucursal
   }
   // Sueldos: solo los ven quien da de alta al personal (rrhh) y los niveles alto y medio.
-  if (req.params.name === "empleados_asistencia" && req.user.role === "admin" && !DUENOS.has(req.user.username) && req.user.username !== "jesus_segura") {
+  if (req.params.name === "empleados_asistencia" && req.user.role === "admin" && !DUENOS.has(req.user.username) && req.user.username !== "jesus_segura" && !SOLO_NOMINAS.has(req.user.username)) {
     return res.json((Array.isArray(data) ? data : []).map((e) => { if (!e) return e; const { sueldoSemanal, bonoFijo, ...resto } = e; return resto; }));
   }
   res.json(data ?? []);

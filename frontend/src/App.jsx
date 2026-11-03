@@ -532,7 +532,11 @@ const DEPTOS = [
   { key: "nominas", nombre: "Nóminas", iconName: "Banknote", activo: true, soloUsuarios: true },
 ];
 // "soloUsuarios": el departamento solo aparece para las cuentas de CONC_USUARIOS.
-const deptoVisible = (d) => !d.soloUsuarios || CONC_USUARIOS.has(getUsername());
+// Cuentas de nivel bajo que solo ven Gestión › Nóminas (nada más).
+const SOLO_NOMINAS = new Set(["bancos_alma"]);
+const soloNominas = () => SOLO_NOMINAS.has(getUsername());
+const puedeNominas = () => CONC_USUARIOS.has(getUsername()) || soloNominas();
+const deptoVisible = (d) => (soloNominas() ? d.key === "nominas" : !d.soloUsuarios || CONC_USUARIOS.has(getUsername()));
 
 /* Roles con acceso limitado dentro de Gestión. Lo que no les toca se ve apagado y no
    responde al clic (sin candados ni avisos), y Cortes › Configuración no aparece.
@@ -547,7 +551,7 @@ const PERMISOS_ROL = {
   // Inventarios solo para mirar (sin agregar ni editar).
   rrhh: { deptos: new Set(["capital_humano", "video_vigilancia", "mantenimiento", "inventarios", "nomina_sucursales"]), inicial: "capital_humano", paneles: [] },
 };
-const permisosRol = () => PERMISOS_ROL[getRole()] || null;
+const permisosRol = () => (soloNominas() ? { deptos: new Set(["nominas"]), inicial: "nominas", paneles: [] } : PERMISOS_ROL[getRole()] || null);
 const ESTILO_APAGADO = { opacity: 0.3, cursor: "default", pointerEvents: "none" };
 
 /* ===== Datos del departamento de Franquicias ===== */
@@ -843,7 +847,7 @@ export default function App({ onCerrarSesion }) {
       {depto === "nomina_sucursales" && <NominaSucursales onCerrarSesion={onCerrarSesion} />}
       {depto === "control_interno" && CONC_USUARIOS.has(getUsername()) && <ControlInterno onCerrarSesion={onCerrarSesion} />}
       {depto === "tesoreria" && CONC_USUARIOS.has(getUsername()) && <Tesoreria onCerrarSesion={onCerrarSesion} />}
-      {depto === "nominas" && CONC_USUARIOS.has(getUsername()) && <Nominas onCerrarSesion={onCerrarSesion} />}
+      {depto === "nominas" && puedeNominas() && <Nominas onCerrarSesion={onCerrarSesion} />}
       {depto !== "nominas" && depto !== "tesoreria" && depto !== "control_interno" && depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
       {depto === "mantenimiento" && (<>
 
@@ -956,7 +960,7 @@ export default function App({ onCerrarSesion }) {
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
 function NavRail({ modo, setModo, soloGestion }) {
   const [oculta, setOculta] = useSidebarOculta();
-  const items = [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"]];
+  const items = soloNominas() ? [["gestion", "Gestión", "LayoutGrid"], ["pendientes", "Pendientes", "StickyNote"]] : [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"]];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
       <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12, flexShrink: 0 }}>
