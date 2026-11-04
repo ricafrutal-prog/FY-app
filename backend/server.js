@@ -6,7 +6,7 @@ import bcrypt from "bcryptjs";
 import { fileURLToPath } from "url";
 import { randomUUID } from "crypto";
 import { initDb, listCollection, upsertItem, deleteItem, getItem, getList, setList, getUserByUsername, updatePreferencias, abrirSesion, cerrarSesion, listarSesiones, listUsers } from "./db.js";
-import { signToken, requireAuth, requireAdmin, requireAdminOInventarios } from "./auth.js";
+import { signToken, requireAuth, requireAdmin, requireAdminOInventarios, SOLO_NOMINAS } from "./auth.js";
 import { odooLogin, odooExecuteKw, fechaLocalMx, sumarDiasISO } from "./odoo.js";
 import { ODOO_SUCURSAL_A_CONFIG } from "./odoo-sucursales.js";
 
@@ -149,8 +149,7 @@ function checkListRole(req, res, next) {
 // cualquier otra colección le regresa 403, sin importar lo que pida el
 // frontend. Esto es lo que hace la restricción real (no solo ocultar
 // botones en la pantalla).
-// Cuentas de nivel bajo que solo usan Nóminas (mismos permisos que el nivel medio dentro de Nóminas).
-const SOLO_NOMINAS = new Set(["bancos_alma"]);
+// SOLO_NOMINAS (auth.js): cuentas de nivel bajo que solo usan Nóminas, con los permisos del nivel medio dentro de Nóminas.
 function checkCollectionRole(req, res, next) {
   if (NOMINAS_COLECCIONES.has(req.params.name)) {
     const u = req.user?.username;

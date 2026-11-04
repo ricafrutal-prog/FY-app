@@ -16,6 +16,19 @@ if (!SECRET) {
   );
 }
 
+// Cuentas de nivel bajo que SOLO usan Gestión › Nóminas (y sus Pendientes / recordatorios). Aunque el
+// rol sea "admin", el servidor les cierra todo lo demás: la pantalla las limita, y esto lo hace de verdad.
+export const SOLO_NOMINAS = new Set(["bancos_alma"]);
+function permitidoSoloNominas(req) {
+  const p = (req.originalUrl || "").split("?")[0].replace(/\/+$/, "");
+  if (p.startsWith("/api/auth/")) return true; // sesión propia: me, heartbeat, logout, preferencias
+  if (p === "/api/collections/nominas_semanas" || p.startsWith("/api/collections/nominas_semanas/")) return true;
+  if (req.method === "GET" && p === "/api/lists/empleados_asistencia") return true; // la nómina parte del personal dado de alta
+  if (p === "/api/notas" || p.startsWith("/api/notas/")) return true; // Pendientes
+  if (p === "/api/recordatorios" || (p.startsWith("/api/recordatorios/") && p !== "/api/recordatorios/personas")) return true;
+  return false;
+}
+
 // `sid` identifica la sesión abierta de este usuario (ver tabla "sesiones"):
 // un token solo vale mientras su sid sea el de la sesión vigente.
 export function signToken(user, sid) {
@@ -44,6 +57,7 @@ export async function requireAuth(req, res, next) {
     // Sin sid (tokens anteriores a este control) o con otro sid: sesión no vigente.
     if (!ses || ses.sid !== payload.sid) return res.status(401).json({ error: "La sesión ya no está vigente. Inicia sesión de nuevo." });
     if (ses.segundos > 20) await tocarSesion(payload.username, payload.sid);
+    if (SOLO_NOMINAS.has(payload.username) && !permitidoSoloNominas(req)) return res.status(403).json({ error: "No tienes permiso para esto" });
     req.user = payload;
     next();
   } catch (err) {

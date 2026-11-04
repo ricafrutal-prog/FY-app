@@ -28,8 +28,27 @@ export default function TesoreriaAdmin() {
   const [editando, setEditando] = useState(null);
   const [guardando, setGuardando] = useState(false);
   const [saldoTxt, setSaldoTxt] = useState("");
+  const [resp, setResp] = useState(null); // responsables de la captura (lista "encargados_tesoreria")
+  const [nuevoResp, setNuevoResp] = useState("");
+
+  const guardarResp = async (lista) => {
+    try { await llamar("PUT", "/api/lists/encargados_tesoreria", lista); setResp(lista); }
+    catch (e) { window.alert(e.message); }
+  };
+  const agregarResp = async () => {
+    const n = nuevoResp.trim().replace(/\s+/g, " ");
+    if (!n) return;
+    if ((resp || []).some((x) => x.toLowerCase() === n.toLowerCase())) { window.alert("Ese responsable ya está en la lista."); return; }
+    await guardarResp([...(resp || []), n]);
+    setNuevoResp("");
+  };
+  const quitarResp = async (n) => {
+    if (!window.confirm(`¿Quitar a ${n} de los responsables de captura? Lo ya capturado con su nombre se conserva.`)) return;
+    await guardarResp((resp || []).filter((x) => x !== n));
+  };
 
   useEffect(() => {
+    apiFetch("/api/lists/encargados_tesoreria").then((r) => r.json()).then((d) => setResp(Array.isArray(d) ? d : [])).catch(() => setResp([]));
     apiFetch("/api/collections/tesoreria_capturas").then((r) => r.json()).then((d) => { if (Array.isArray(d)) setCapturas(d); else setError("No se pudo cargar Tesorería"); }).catch(() => setError("No se pudo cargar Tesorería"));
     apiFetch("/api/collections/tesoreria_saldo").then((r) => r.json()).then((d) => {
       const doc = Array.isArray(d) ? d.find((x) => x.id === SALDO_ID) : null;
@@ -81,7 +100,7 @@ export default function TesoreriaAdmin() {
       const doc = {
         ...editando,
         encargado: editando.encargado.trim(),
-        movimientos: editando.movimientos.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso) })),
+        movimientos: editando.movimientos.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...(m.entregaId != null ? { entregaId: m.entregaId, entregaFolio: m.entregaFolio, montoEntrega: m.montoEntrega } : {}) })),
         editadoPor: getUsername(), editadoEn: new Date().toISOString(),
       };
       await llamar("PUT", `/api/collections/tesoreria_capturas/${doc.id}`, doc);
@@ -109,7 +128,7 @@ export default function TesoreriaAdmin() {
             {editando.movimientos.map((m, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: COLS, gap: 6, alignItems: "center" }}>
                 {ORDEN.map((k) => (
-                  <input key={k} value={m[k]} onChange={(e) => poner(i, k, e.target.value)} inputMode={k === "folio" ? "numeric" : k === "ingreso" || k === "egreso" ? "decimal" : "text"} placeholder={k === "ingreso" || k === "egreso" ? "0.00" : ""} spellCheck={k === "concepto"} lang="es" style={{ ...campo, textAlign: k === "ingreso" || k === "egreso" ? "right" : "left" }} />
+                  <input key={k} readOnly={k === "folio" && m.entregaId != null} value={m[k]} onChange={(e) => poner(i, k, e.target.value)} inputMode={k === "folio" ? "numeric" : k === "ingreso" || k === "egreso" ? "decimal" : "text"} placeholder={k === "ingreso" || k === "egreso" ? "0.00" : ""} spellCheck={k === "concepto"} lang="es" style={{ ...campo, textAlign: k === "ingreso" || k === "egreso" ? "right" : "left" }} />
                 ))}
                 <button onClick={() => quitarFila(i)} title="Eliminar este movimiento" style={{ background: "none", border: "none", color: C.bad, fontSize: 18, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>
               </div>
@@ -135,6 +154,24 @@ export default function TesoreriaAdmin() {
     <div>
       <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, fontWeight: 600, margin: "0 0 4px", color: C.ink }}>Tesorería</h1>
       <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 16 }}>Edita o elimina lo que se capturó en Tesorería. El saldo se recalcula solo.</div>
+
+      <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: C.ink, marginBottom: 8 }}>Responsables de la captura</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          <input value={nuevoResp} onChange={(e) => setNuevoResp(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") agregarResp(); }} placeholder="Nombre del responsable" maxLength={80} style={{ ...campo, width: 260 }} />
+          <button onClick={agregarResp} disabled={!nuevoResp.trim() || resp === null} style={{ ...btn(false, true), opacity: nuevoResp.trim() ? 1 : 0.5 }}>Agregar</button>
+        </div>
+        {resp === null ? <div style={{ fontSize: 12, color: C.muted }}>Cargando…</div> : resp.length === 0 ? <div style={{ fontSize: 12, color: C.muted }}>Todavía no hay responsables. Los que agregues aparecen al elegir "Encargado de la captura".</div> : (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {resp.map((n) => (
+              <span key={n} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: C.paper, border: `1px solid ${C.line}`, borderRadius: 99, padding: "4px 6px 4px 12px", fontSize: 12.5, color: C.ink }}>
+                {n}
+                <button onClick={() => quitarResp(n)} title={`Quitar a ${n}`} aria-label={`Quitar a ${n}`} style={{ background: "none", border: "none", color: C.bad, fontSize: 16, lineHeight: 1, cursor: "pointer", padding: "0 4px" }}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "flex-end", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <div>

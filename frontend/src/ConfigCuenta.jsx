@@ -22,7 +22,7 @@ export function opcionesConfig() {
     out.push({ key: "horarios", titulo: "Alta de personal", desc: "Dar de alta personal (de sucursal o fuera de ella), con su puesto, horario y sueldo", Icono: UserPlus });
     out.push({ key: "asistencia", titulo: "Registro de asistencia", desc: "Editar o eliminar lo que capturaron las sucursales", Icono: ClipboardList });
   }
-  if (DUENOS.has(u)) out.push({ key: "tesoreria", titulo: "Tesorería", desc: "Editar o eliminar movimientos y capturas de tesorería", Icono: Landmark });
+  if (DUENOS.has(u)) out.push({ key: "tesoreria", titulo: "Tesorería", desc: "Responsables de la captura, saldo inicial, y editar o eliminar capturas", Icono: Landmark });
   return out;
 }
 

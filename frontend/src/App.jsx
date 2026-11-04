@@ -11,7 +11,7 @@ import RangoFechas from "./RangoFechas.jsx";
 import Pendientes from "./Pendientes.jsx";
 import MontoInput from "./MontoInput.jsx";
 import { jornadaNeta, DIAS_NOMINA, SUCURSAL_FUERA, AREAS_PERSONAL, esAreaFuera, ordenGrupo, CONCEPTOS_NOMINA, etiquetaSemana, idSemana, semanasRecientes, ultimaSemanaCompleta, calcularFila, filaDeEmpleado, claveFila, totalNomina, autocompletarHoras, DIAS_GETDAY_NOMINA, DIAS_SEMANA_LMD, DIAS_LABORALES_DEFECTO, diasLaborales, textoDias } from "./nominaUtil";
-import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos } from "./tesoreriaUtil";
+import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos, saldoAntesDe, saldosCorridos, movimientoDeEntrega, diferenciaEntrega, diasDesde, etiquetaEntrega } from "./tesoreriaUtil";
 import { useSidebarOculta, PanelCabecera, BotonMostrarBarra } from "./SidebarToggle.jsx";
 import { RUTA_POR_DEFECTO, construirRuta, rutaNorm, rutaCoincide } from "./rutaCortes";
 import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
@@ -5338,7 +5338,8 @@ function AISalidas({ salidas, setSalidas, conteos, onSalir }) {
   const [verSalida, setVerSalida] = useState(null);
   const [mesF, setMesF] = useState("todos");
   const [anioF, setAnioF] = useState("todos");
-  const folioSiguiente = salidas.filter((s) => s.estado === "finalizado").length + 1;
+  // Folio consecutivo: el más alto que exista + 1 (no se repite aunque se borre una entrega).
+  const folioSiguiente = Math.max(0, ...salidas.map((s) => Number(s.folio) || 0)) + 1;
 
   const hayEnProceso = salidas.some((s) => s.estado === "proceso");
   const contado = conteos.filter(aiCuentaHaciaSaldo).reduce((s, c) => s + aiTotalConteo(c.consolidado), 0);
@@ -6834,12 +6835,12 @@ function ControlInterno({ onCerrarSesion }) {
    La primera vez se pide el saldo inicial; después el saldo se mueve solo con los movimientos.
    Editar o borrar lo ya capturado se hace en Configuración de cuenta › Tesorería (nivel alto).
    ============================================================ */
-const TES_COLS = "78px 1fr 1fr 1fr 1.2fr 2.4fr 118px 118px 26px";
+const TES_COLS = "78px 1fr 1fr 1fr 1.2fr 2.4fr 118px 118px 124px 26px";
 const TES_ORDEN = ["folio", "categoria", "subcategoria", "detalle", "nombre", "concepto", "ingreso", "egreso"];
 const TES_ROTULOS = { folio: "Folio", categoria: "Categoría", subcategoria: "Subcategoría", detalle: "Detalle", nombre: "Nombre", concepto: "Concepto", ingreso: "Ingreso", egreso: "Egreso" };
 const tesDosPalabras = (t) => { const p = t.split(/\s+/); return p.length > 2 ? p.slice(0, 2).join(" ") : t; };
 
-function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onEliminarEncargado, onSiguiente, onCancelar }) {
+function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], encargados, onAgregarEncargado, onEliminarEncargado, onSiguiente, onCancelar }) {
   const [fecha, setFecha] = useState(inicial?.fecha || fechaLocalISO());
   const [encargado, setEncargado] = useState(inicial?.encargado || "");
   const [saldo, setSaldo] = useState(inicial?.saldoInicial != null ? String(inicial.saldoInicial) : "");
@@ -6865,6 +6866,15 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
     return { ...m, [campo]: valor };
   }));
   const agregar = () => { pendienteFoco.current = { fila: movs.length, campo: "folio" }; setMovs((p) => [...p, movimientoVacio()]); };
+  // Recibir una entrega de efectivo de Cortes: agrega su renglón de ingreso con el folio de la entrega.
+  const [verEntregas, setVerEntregas] = useState(false);
+  const enUso = new Set(movs.filter((m) => m.entregaId != null).map((m) => String(m.entregaId)));
+  const porElegir = pendientes.filter((s) => !enUso.has(String(s.id)));
+  const recibirEntrega = (s) => {
+    const fila = movimientoDeEntrega(s);
+    setMovs((p) => (p.length === 1 && !p[0].folio && !p[0].concepto && !tesNum(p[0].ingreso) && !tesNum(p[0].egreso) ? [fila] : [...p, fila]));
+    setVerEntregas(false);
+  };
   const quitar = (i) => setMovs((p) => (p.length > 1 ? p.filter((_, idx) => idx !== i) : p));
   const enfocar = (fila, campo) => { const el = document.querySelector(`[data-tes="${fila}-${campo}"]`); if (el) el.focus(); };
   const alTeclear = (e, i, campo) => {
@@ -6880,11 +6890,13 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
   const todosValidos = movs.length > 0 && movs.every(movimientoValido);
   const ok = !!fecha && !!encargado && saldoOk && todosValidos;
   const tot = totalesDe(movs);
+  const inicioDia = pideSaldo ? tesNum(saldo) : tesNum(saldoInicialDia); // saldo con el que arranca esta captura
+  const saldos = saldosCorridos(inicioDia, movs);
   const siguiente = () => {
     if (!ok) return;
     onSiguiente({
       fecha, encargado, saldoInicial: pideSaldo ? tesNum(saldo) : null,
-      movimientos: movs.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso) })),
+      movimientos: movs.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...(m.entregaId != null ? { entregaId: m.entregaId, entregaFolio: m.entregaFolio, montoEntrega: m.montoEntrega } : {}) })),
     });
   };
   const celda = { ...sx.sel, padding: "7px 8px", fontSize: 12.5, minWidth: 0 };
@@ -6896,7 +6908,7 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
           <AISelectorNombre label="Encargado de la captura" valor={encargado} onChange={setEncargado} opciones={encargados} onAgregar={onAgregarEncargado} onEliminar={(n) => { onEliminarEncargado(n); if (encargado === n) setEncargado(""); }} placeholder="Selecciona quién captura" />
           <TField label="Fecha de la captura"><input type="date" value={fecha} max={fechaLocalISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} /></TField>
           {pideSaldo && (
-            <TField label="Saldo inicial" hint="Solo se pide esta primera vez">
+            <TField label="Saldo inicial">
               <input value={saldo} onChange={(e) => setSaldo(limpiarMonto(e.target.value))} inputMode="decimal" placeholder="$0.00" className="sel" style={sx.sel} />
             </TField>
           )}
@@ -6906,16 +6918,21 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
       <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>Movimientos</div>
         <div style={{ overflowX: "auto" }}>
-          <div style={{ minWidth: 1080, display: "grid", gap: 6 }}>
+          <div style={{ minWidth: 1210, display: "grid", gap: 6 }}>
             <div style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 2px" }}>
-              {TES_ORDEN.map((c) => <div key={c}>{TES_ROTULOS[c]}</div>)}<div />
+              {TES_ORDEN.map((c) => <div key={c}>{TES_ROTULOS[c]}</div>)}<div style={{ textAlign: "right" }}>Saldo</div><div />
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: T.brandSoft, borderRadius: 9, padding: "7px 12px", fontSize: 12.5 }}>
+              <strong>Saldo inicial del día</strong><strong>{aiMoney(inicioDia)}</strong>
             </div>
             {movs.map((m, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, alignItems: "center" }}>
+              <Fragment key={i}>
+              <div style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, alignItems: "center" }}>
                 {TES_ORDEN.map((c) => (
                   <input
                     key={c}
                     data-tes={`${i}-${c}`}
+                    readOnly={c === "folio" && m.entregaId != null}
                     value={m[c]}
                     onChange={(e) => poner(i, c, e.target.value)}
                     onKeyDown={(e) => alTeclear(e, i, c)}
@@ -6928,13 +6945,36 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
                     style={{ ...celda, textAlign: c === "ingreso" || c === "egreso" ? "right" : "left" }}
                   />
                 ))}
+                <div style={{ textAlign: "right", fontSize: 12.5, fontWeight: 600, color: saldos[i] < 0 ? T.bad : T.ink, paddingRight: 4 }}>{aiMoney(saldos[i])}</div>
                 <button onClick={() => quitar(i)} disabled={movs.length === 1} title="Quitar este movimiento" style={{ background: "none", border: "none", cursor: movs.length === 1 ? "not-allowed" : "pointer", opacity: movs.length === 1 ? 0.3 : 1, padding: 0, lineHeight: 0 }}><Ico name="X" size={16} color={T.bad} /></button>
               </div>
+              {m.entregaId != null && (() => {
+                const dif = diferenciaEntrega(m);
+                return (
+                  <div style={{ fontSize: 11.5, color: dif ? T.bad : T.muted, margin: "-2px 0 4px 84px" }}>
+                    Entrega {etiquetaEntrega(m.entregaFolio)} de Cortes: {aiMoney(m.montoEntrega)} entregados{dif ? ` · diferencia ${dif > 0 ? "+" : "−"}${aiMoney(Math.abs(dif))} (${dif > 0 ? "sobran" : "faltan"})` : " · el monto coincide"}
+                  </div>
+                );
+              })()}
+              </Fragment>
             ))}
           </div>
         </div>
+        {verEntregas && porElegir.length > 0 && (
+          <div style={{ background: T.paper, borderRadius: 10, padding: 10, display: "grid", gap: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: T.inkSoft }}>Elige la entrega que estás recibiendo</div>
+            {porElegir.map((s) => (
+              <button key={s.id} onClick={() => recibirEntrega(s)} className="rowbtn" style={{ textAlign: "left", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 9, padding: "8px 12px", cursor: "pointer", fontFamily: "inherit", fontSize: 12.5, display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span><strong>{etiquetaEntrega(s.folio)}</strong> · {s.fecha} · entrega {s.entrega}</span><strong>{aiMoney(s.monto)}</strong>
+              </button>
+            ))}
+          </div>
+        )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>+ Agregar movimiento</button>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>+ Agregar movimiento</button>
+            {porElegir.length > 0 && <button onClick={() => setVerEntregas((v) => !v)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: T.brand }}>Recibir entrega ({porElegir.length})</button>}
+          </div>
           <div style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span>Ingresos <strong style={{ color: T.ok }}>{aiMoney(tot.ingresos)}</strong></span>
             <span>Egresos <strong style={{ color: T.bad }}>{aiMoney(tot.egresos)}</strong></span>
@@ -6953,6 +6993,9 @@ function TesoreriaForm({ inicial, pideSaldo, encargados, onAgregarEncargado, onE
 
 function TesoreriaRevision({ datos, saldoPrevio, soloLectura, onAtras, onFinalizar, onCerrar }) {
   const tot = totalesDe(datos.movimientos);
+  const saldos = saldoPrevio != null ? saldosCorridos(saldoPrevio, datos.movimientos) : null;
+  const saldoFinal = saldos && saldos.length ? saldos[saldos.length - 1] : saldoPrevio;
+  const filasExport = datos.movimientos.map((m, i) => ({ ...m, saldo: saldos ? saldos[i] : null }));
   const th = { padding: "7px 10px", textAlign: "left", fontSize: 12 };
   const td = { padding: "7px 10px", borderBottom: `1px solid ${T.lineSoft}`, fontSize: 13 };
   const titulo = `Tesorería ${datos.fecha}`;
@@ -6961,32 +7004,49 @@ function TesoreriaRevision({ datos, saldoPrevio, soloLectura, onAtras, onFinaliz
       {soloLectura && <PrintHeader titulo={titulo} />}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>{soloLectura ? "Detalle de la captura" : "Revisión de la captura"}</div>
-        {soloLectura && <AIExportMenu titulo={titulo} columnas={columnasMovimientos(aiMoney)} filas={datos.movimientos} />}
+        {soloLectura && <AIExportMenu titulo={titulo} columnas={columnasMovimientos(aiMoney)} filas={filasExport} />}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, fontSize: 13 }}>
         <div><div style={{ color: T.muted, fontSize: 11 }}>Fecha</div><strong>{datos.fecha}</strong></div>
         <div><div style={{ color: T.muted, fontSize: 11 }}>Encargado</div><strong>{datos.encargado}</strong></div>
-        {!soloLectura && saldoPrevio != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo anterior</div><strong>{aiMoney(saldoPrevio)}</strong></div>}
+        {saldoPrevio != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo inicial del día</div><strong>{aiMoney(saldoPrevio)}</strong></div>}
         <div><div style={{ color: T.muted, fontSize: 11 }}>Ingresos</div><strong style={{ color: T.ok }}>{aiMoney(tot.ingresos)}</strong></div>
         <div><div style={{ color: T.muted, fontSize: 11 }}>Egresos</div><strong style={{ color: T.bad }}>{aiMoney(tot.egresos)}</strong></div>
-        {soloLectura
-          ? <div><div style={{ color: T.muted, fontSize: 11 }}>Neto de la captura</div><strong>{aiMoney(tot.neto)}</strong></div>
-          : saldoPrevio != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo después</div><strong style={{ color: T.brand }}>{aiMoney(Math.round((saldoPrevio + tot.neto) * 100) / 100)}</strong></div>}
+        {saldoFinal != null && <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo final</div><strong style={{ color: T.brand }}>{aiMoney(saldoFinal)}</strong></div>}
       </div>
+      {datos.movimientos.some((m) => diferenciaEntrega(m)) && (
+        <div style={{ background: T.badSoft || "#FDECEA", color: T.bad, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600 }}>
+          Hay entregas de Cortes donde lo recibido no coincide con lo entregado. Revísalo antes de finalizar.
+        </div>
+      )}
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: T.paper }}>
             {TES_ORDEN.map((c) => <th key={c} style={{ ...th, textAlign: c === "ingreso" || c === "egreso" ? "right" : "left" }}>{TES_ROTULOS[c]}</th>)}
+            <th style={{ ...th, textAlign: "right" }}>Saldo</th>
           </tr></thead>
           <tbody>
+            {saldoPrevio != null && (
+              <tr style={{ background: T.brandSoft }}><td style={{ ...td, fontWeight: 700 }} colSpan={5}>Saldo inicial del día</td><td style={td} /><td style={td} /><td style={td} /><td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{aiMoney(saldoPrevio)}</td></tr>
+            )}
             {datos.movimientos.map((m, i) => (
               <tr key={i}>
                 <td style={td}>{m.folio}</td><td style={td}>{m.categoria}</td><td style={td}>{m.subcategoria}</td><td style={td}>{m.detalle}</td><td style={td}>{m.nombre}</td>
-                <td style={{ ...td, minWidth: 220 }}>{m.concepto}</td>
+                <td style={{ ...td, minWidth: 220 }}>
+                  {m.concepto}
+                  {diferenciaEntrega(m) ? <div style={{ fontSize: 11.5, color: T.bad, fontWeight: 600 }}>Entregado {aiMoney(m.montoEntrega)} · diferencia {diferenciaEntrega(m) > 0 ? "+" : "−"}{aiMoney(Math.abs(diferenciaEntrega(m)))}</div> : null}
+                </td>
                 <td style={{ ...td, textAlign: "right", color: T.ok }}>{tesNum(m.ingreso) ? aiMoney(tesNum(m.ingreso)) : ""}</td>
                 <td style={{ ...td, textAlign: "right", color: T.bad }}>{tesNum(m.egreso) ? aiMoney(tesNum(m.egreso)) : ""}</td>
+                <td style={{ ...td, textAlign: "right", fontWeight: 600, color: saldos && saldos[i] < 0 ? T.bad : T.ink }}>{saldos ? aiMoney(saldos[i]) : ""}</td>
               </tr>
             ))}
+            <tr style={{ background: T.paper }}>
+              <td style={{ ...td, fontWeight: 700 }} colSpan={6}>Totales</td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, color: T.ok }}>{aiMoney(tot.ingresos)}</td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, color: T.bad }}>{aiMoney(tot.egresos)}</td>
+              <td style={{ ...td, textAlign: "right", fontWeight: 700, color: T.brand }}>{saldoFinal != null ? aiMoney(saldoFinal) : ""}</td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -7007,14 +7067,23 @@ function TesoreriaRevision({ datos, saldoPrevio, soloLectura, onAtras, onFinaliz
 function Tesoreria({ onCerrarSesion }) {
   const [capturas, setCapturas, capturasListas] = usePersistedCollection("tesoreria_capturas");
   const [saldoDocs, setSaldoDocs, saldoListo] = usePersistedCollection("tesoreria_saldo");
+  const [salidas, , salidasListas] = usePersistedCollection("salidas"); // entregas de efectivo de Cortes (solo se leen)
   const [encargados, setEncargados] = usePersistedList("encargados_tesoreria", []);
-  const [paso, setPaso] = useState("lista"); // lista | captura | revision | ver
+  const [paso, setPaso] = useState("inicio"); // inicio | lista | entregas | captura | revision | ver
   const [borrador, setBorrador] = useState(null);
   const [verId, setVerId] = useState(null);
   const [mesF, setMesF] = useState("todos");
   const [anioF, setAnioF] = useState("todos");
-  const listos = capturasListas && saldoListo;
+  const listos = capturasListas && saldoListo && salidasListas;
   const saldoDoc = saldoDocs.find((s) => s.id === SALDO_ID) || null;
+  // Entregas por recibir: todas las finalizadas en Cortes que ningún renglón de Tesorería tenga todavía ligadas.
+  const hoyISO = fechaLocalISO();
+  const pendientes = useMemo(() => {
+    const recibidas = new Set(capturas.flatMap((c) => (c.movimientos || []).filter((m) => m.entregaId != null).map((m) => String(m.entregaId))));
+    return salidas.filter((s) => s.estado === "finalizado" && Number(s.monto) > 0 && !recibidas.has(String(s.id)))
+      .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || (Number(b.folio) || 0) - (Number(a.folio) || 0)); // de la más reciente a la más vieja
+  }, [capturas, salidas]);
+  const atrasadas = pendientes.filter((s) => diasDesde(s.fecha, hoyISO) >= 1).length;
   const saldoNow = saldoDoc ? saldoActual(saldoDoc.monto, capturas) : null;
   const todos = useMemo(() => capturas.reduce((o, c) => { const t = totalesDe(c.movimientos || []); return { i: o.i + t.ingresos, e: o.e + t.egresos }; }, { i: 0, e: 0 }), [capturas]);
   const filtradas = aiFiltrarMesAnio(capturas, mesF, anioF);
@@ -7035,7 +7104,7 @@ function Tesoreria({ onCerrarSesion }) {
   };
   const capturaVista = paso === "ver" ? capturas.find((c) => c.id === verId) : null;
   const saldoPrevio = saldoDoc ? saldoNow : borrador?.saldoInicial ?? null;
-  const subtitulo = { lista: "Panel principal", captura: "Nueva captura", revision: "Revisión", ver: "Detalle" }[paso];
+  const subtitulo = { inicio: "Panel principal", lista: "Capturas", entregas: "Entregas por recibir", captura: "Nueva captura", revision: "Revisión", ver: "Detalle" }[paso];
 
   return (
     <>
@@ -7047,17 +7116,37 @@ function Tesoreria({ onCerrarSesion }) {
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
+        {(paso === "lista" || paso === "entregas") && <button onClick={() => setPaso("inicio")} style={sx.back}>‹ Tesorería</button>}
         <div style={sx.h1row}>
-          <h1 style={sx.h1}>Tesorería</h1>
+          <h1 style={sx.h1}>{paso === "entregas" ? "Entregas por recibir" : "Tesorería"}</h1>
           {paso === "lista" && listos && <AIBotonNuevo label="Nueva captura" enProceso={false} onClick={() => { setBorrador(null); setPaso("captura"); }} />}
         </div>
         {!listos ? <div style={sx.empty}>Cargando datos…</div> : (
           <>
-            {paso === "captura" && <TesoreriaForm inicial={borrador} pideSaldo={!saldoDoc} encargados={encargados} onAgregarEncargado={agregarEncargado} onEliminarEncargado={eliminarEncargado} onSiguiente={(d) => { setBorrador(d); setPaso("revision"); }} onCancelar={() => { setBorrador(null); setPaso("lista"); }} />}
+            {paso === "captura" && <TesoreriaForm inicial={borrador} pideSaldo={!saldoDoc} saldoInicialDia={saldoNow} pendientes={pendientes} encargados={encargados} onAgregarEncargado={agregarEncargado} onEliminarEncargado={eliminarEncargado} onSiguiente={(d) => { setBorrador(d); setPaso("revision"); }} onCancelar={() => { setBorrador(null); setPaso("inicio"); }} />}
             {paso === "revision" && borrador && <TesoreriaRevision datos={borrador} saldoPrevio={saldoPrevio} onAtras={() => setPaso("captura")} onFinalizar={finalizar} />}
-            {paso === "ver" && capturaVista && <TesoreriaRevision datos={capturaVista} soloLectura onCerrar={() => { setVerId(null); setPaso("lista"); }} />}
-            {paso === "lista" && (
+            {paso === "ver" && capturaVista && <TesoreriaRevision datos={capturaVista} saldoPrevio={saldoDoc ? saldoAntesDe(saldoDoc.monto, capturas, capturaVista.id) : null} soloLectura onCerrar={() => { setVerId(null); setPaso("lista"); }} />}
+            {paso === "inicio" && (
               <>
+                <div style={sx.sectionTitle}>Captura</div>
+                <div style={{ ...sx.cards4, marginBottom: 30 }}>
+                  <button onClick={() => setPaso("lista")} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
+                    <Ico name="Landmark" size={30} strokeWidth={1.6} color={T.brand} />
+                    <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>Tesorería</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Saldo, capturas y movimientos</div>
+                  </button>
+                  <button onClick={() => setPaso("entregas")} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
+                    <Ico name="HandCoins" size={30} strokeWidth={1.6} color={T.brand} />
+                    <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>Entregas por recibir</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Efectivo de Cortes pendiente de recibir</div>
+                    {pendientes.length > 0 && <span style={{ display: "inline-block", marginTop: 8, fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: atrasadas ? T.bad : T.warn, background: atrasadas ? "#FDECEA" : T.warnSoft }}>{pendientes.length} pendiente{pendientes.length === 1 ? "" : "s"}</span>}
+                  </button>
+                </div>
+              </>
+            )}
+            {(paso === "lista" || paso === "entregas") && (
+              <>
+                {paso === "lista" && (
                 <div style={{ ...sx.repCard, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Saldo actual</div>
@@ -7071,7 +7160,34 @@ function Tesoreria({ onCerrarSesion }) {
                       </div>
                     : <div style={{ fontSize: 12, color: T.muted, maxWidth: 320 }}>Todavía no hay saldo inicial: se te pedirá en tu primera captura.</div>}
                 </div>
-                {capturas.length === 0 ? <div style={sx.empty}>Aún no hay capturas de tesorería.</div> : (
+                )}
+                {paso === "entregas" && (
+                  <div style={{ ...sx.repCard, marginBottom: 14, display: "grid", gap: 10, border: `1px solid ${atrasadas ? T.bad : T.line}` }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14 }}>Entregas por recibir</div>
+                      {pendientes.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: atrasadas ? T.bad : T.warn, background: atrasadas ? "#FDECEA" : T.warnSoft }}>{pendientes.length} pendiente{pendientes.length === 1 ? "" : "s"}</span>}
+                      {atrasadas > 0 && <span style={{ fontSize: 12, color: T.bad, fontWeight: 600 }}>{atrasadas} con más de un día sin recibir</span>}
+                    </div>
+                    {pendientes.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No hay entregas pendientes de recibir. Aquí aparecen las entregas de efectivo que se finalicen en Cortes.</div>}
+                    {pendientes.map((s) => {
+                      const dias = diasDesde(s.fecha, hoyISO);
+                      return (
+                        <div key={s.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8 }}>
+                          <div>
+                            <div style={{ fontSize: 13 }}><strong>{etiquetaEntrega(s.folio)}</strong> · {s.fecha} · entrega {s.entrega}</div>
+                            <div style={{ fontSize: 11.5, color: dias >= 1 ? T.bad : T.muted, fontWeight: dias >= 1 ? 600 : 400 }}>{dias <= 0 ? "Entregada hoy" : `Sin recibir hace ${dias} día${dias === 1 ? "" : "s"}`}</div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <strong>{aiMoney(s.monto)}</strong>
+                            <button onClick={() => { setBorrador({ movimientos: [movimientoDeEntrega(s)] }); setPaso("captura"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 12px", background: T.brand }}>Recibir</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {paso === "lista" && capturas.length === 0 && <div style={sx.empty}>Aún no hay capturas de tesorería.</div>}
+                {paso === "lista" && capturas.length > 0 && (
                   <>
                     <AIListToolbar items={capturas} mes={mesF} setMes={setMesF} anio={anioF} setAnio={setAnioF} titulo="Tesorería" columnas={columnasLista} filasExport={filtradas} />
                     {filtradas.length === 0 ? <div style={sx.empty}>No hay capturas en ese periodo.</div> : (

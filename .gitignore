@@ -5,3 +5,10 @@ backend/data.sqlite
 backend/data.sqlite-shm
 backend/data.sqlite-wal
 .fuse_hidden*
+
+# Archivos locales con usuarios/contraseñas: nunca se suben a GitHub
+*.command
+.DS_Store
+.env
+.env.*
+!.env.example
