@@ -26,7 +26,8 @@ export function opcionesConfig() {
   return out;
 }
 
-export default function ConfigCuentaContenido({ onAbrirHorarios }) {
+// `extra`: más opciones (ya armadas) que se agregan al final de la primera columna.
+export default function ConfigCuentaContenido({ onAbrirHorarios, extra = null }) {
   const opciones = opcionesConfig();
   const [verRuta, setVerRuta] = useState(false);
   const [verAsistencia, setVerAsistencia] = useState(false);
@@ -62,7 +63,8 @@ export default function ConfigCuentaContenido({ onAbrirHorarios }) {
               </div>
             </button>
           ))}
-          {opciones.length === 0 && <div style={{ background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 12, padding: 16, fontSize: 12.5, color: C.muted }}>Por ahora no hay opciones de configuración disponibles para tu cuenta.</div>}
+          {extra}
+          {opciones.length === 0 && !extra && <div style={{ background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 12, padding: 16, fontSize: 12.5, color: C.muted }}>Por ahora no hay opciones de configuración disponibles para tu cuenta.</div>}
         </div>
         <div />
       </div>

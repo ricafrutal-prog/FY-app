@@ -3539,9 +3539,6 @@ const AI_PANELES_VISUAL = [
   { key: "v1", nombre: "Historial cortes", icon: "CalendarClock", activo: true, desc: "Recibidos y por recibir" },
   { key: "v3", nombre: "Saldo de Efectivo", icon: "Wallet", activo: true, desc: "Contado, entregado y disponible" },
 ];
-const AI_PANELES_CONFIG = [
-  { key: "config", nombre: "Configuración", icon: "Settings", activo: true, desc: "Preferencias del auditor" },
-];
 // Cuentas que entran a Gestión pero no deben ver "Cortes › Configuración"
 // (ahí se administran sucursales, terminaciones, responsables y productos —
 // se deja solo para quien da mantenimiento a la plataforma). Se checa por
@@ -3549,7 +3546,7 @@ const AI_PANELES_CONFIG = [
 // "sucursal" — si hace falta para más gente, esto se vuelve una lista.
 const USUARIOS_SIN_CONFIG_CORTES = new Set(["jesus_segura"]);
 
-function AIHome({ onEnter, mostrarConfiguracion, soloPaneles }) {
+function AIHome({ onEnter, soloPaneles }) {
   // Con `soloPaneles` (rol inventarios) el resto de los cuadros se ve apagado y no responde,
   // y se ocultan por completo la sección de visualización y la de configuración.
   const apagado = (p) => soloPaneles && !soloPaneles.includes(p.key);
@@ -3582,20 +3579,6 @@ function AIHome({ onEnter, mostrarConfiguracion, soloPaneles }) {
         ))}
       </div>
 
-      {mostrarConfiguracion && (
-        <>
-          <div style={sx.sectionTitle}>Configuración</div>
-          <div style={sx.cards4}>
-            {AI_PANELES_CONFIG.map((p) => (
-              <button key={p.key} onClick={() => onEnter(p.key)} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
-                <Ico name={p.icon} size={30} strokeWidth={1.6} color={T.brand} />
-                <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>{p.nombre}</div>
-                {p.desc && <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>{p.desc}</div>}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
     </div>
   );
 }
@@ -5824,72 +5807,42 @@ function AIModalProductosInventario({ productosInventario, setProductosInventari
   );
 }
 
-function AIConfiguracion({ sucursalesAI, setSucursalesAI, terminacionesAI, setTerminacionesAI, responsablesAI, setResponsablesAI, empleadosAsistencia, setEmpleadosAsistencia, cortesSucursal, setCortesSucursal, inventariosSucursal, setInventariosSucursal, productosInventario, setProductosInventario, onSalir }) {
-  const [abierto, setAbierto] = useState(false);
-  const [abiertoTerm, setAbiertoTerm] = useState(false);
-  const [abiertoGastos, setAbiertoGastos] = useState(false);
-  const [abiertoInv, setAbiertoInv] = useState(false);
-  const [abiertoProductos, setAbiertoProductos] = useState(false);
+/* Opciones que antes vivían en Cortes › Configuración. Ahora se abren desde Cuenta › Configuración de
+   cuenta (ver ConfigCuentaPantalla). Se muestran solo a quien antes veía esa configuración. */
+const puedeConfigCortes = () => getRole() === "admin" && !USUARIOS_SIN_CONFIG_CORTES.has(getUsername()) && !soloNominas();
 
+function ConfigCortesOpciones() {
+  const [sucursalesAI, setSucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
+  const [terminacionesAI, setTerminacionesAI] = usePersistedList("terminacionesAI", AI_TERMINACIONES_DEFAULT);
+  const [cortesSucursal, setCortesSucursal, cortesListos] = usePersistedCollection("gastos_descuentos_sucursal");
+  const [inventariosSucursal, setInventariosSucursal, inventariosListos] = usePersistedCollection("conteos_diarios_inventario");
+  const [productosInventario, setProductosInventario, productosListos] = usePersistedCollection("productos_inventario");
+  const [abierto, setAbierto] = useState(null); // sucursales | terminales | gastos | inventarios | productos
+  const opciones = [
+    { key: "sucursales", titulo: "Sucursales", desc: "Agregar o eliminar sucursales (Recepción y Conteo de Cortes)", icono: "Store", listo: true },
+    { key: "terminales", titulo: "Terminales bancarias", desc: "Para identificar sucursales en el reporte del banco (Auditoría)", icono: "CreditCard", listo: true },
+    { key: "gastos", titulo: "Gastos y Descuentos", desc: "Lo capturado por sucursal en Cortes · eliminar por día completo", icono: "Receipt", listo: cortesListos },
+    { key: "inventarios", titulo: "Inventarios (capturas)", desc: "Lo capturado por sucursal en Inventarios · eliminar por día completo", icono: "ClipboardList", listo: inventariosListos },
+    { key: "productos", titulo: "Productos de Inventario", desc: "Catálogo único para todas las sucursales · Conteo diario", icono: "Package", listo: productosListos },
+  ];
+  const cerrar = () => setAbierto(null);
   return (
-    <div>
-      <button onClick={onSalir} style={sx.back}>‹ Cortes</button>
-      <div style={sx.h1row}><h1 style={sx.h1}>Configuración</h1></div>
-
-      <div style={{ background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, maxWidth: 520 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
+    <>
+      {opciones.map((o) => (
+        <button key={o.key} onClick={() => o.listo && setAbierto(o.key)} disabled={!o.listo} style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", textAlign: "left", background: "#fff", border: `1px solid ${T.line}`, borderRadius: 12, padding: "14px 16px", cursor: o.listo ? "pointer" : "wait", opacity: o.listo ? 1 : 0.6, fontFamily: "inherit" }}>
+          <Ico name={o.icono} size={20} color={T.brand} />
           <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Sucursales</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Aplica a Recepción de Cortes y Conteo de Cortes</div>
+            <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{o.titulo}</div>
+            <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>{o.desc}</div>
           </div>
-          <button onClick={() => setAbierto(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Terminales bancarias</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Para identificar sucursales en el reporte del banco (Auditoría)</div>
-          </div>
-          <button onClick={() => setAbiertoTerm(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Gastos y Descuentos</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Lo capturado por sucursal en Cortes · eliminar por día completo</div>
-          </div>
-          <button onClick={() => setAbiertoGastos(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Ver y eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14, borderBottom: `1px solid ${T.lineSoft}` }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Inventarios</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Lo capturado por sucursal en Inventarios · eliminar por día completo</div>
-          </div>
-          <button onClick={() => setAbiertoInv(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Ver y eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 16px", gap: 14 }}>
-          <div>
-            <div style={{ fontSize: 13.5, fontWeight: 500 }}>Productos de Inventario</div>
-            <div style={{ fontSize: 11, color: T.muted, marginTop: 2 }}>Catálogo único para todas las sucursales · Inventarios · Conteo diario</div>
-          </div>
-          <button onClick={() => setAbiertoProductos(true)} style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${T.line}`, borderRadius: 8, padding: "7px 12px", background: "#fff", cursor: "pointer", fontSize: 12.5, fontWeight: 600, color: T.ink, whiteSpace: "nowrap" }}>
-            Agregar o eliminar<Ico name="ChevronRight" size={14} color={T.muted} />
-          </button>
-        </div>
-      </div>
-
-      {abierto && <AIModalSucursales sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onCerrar={() => setAbierto(false)} />}
-      {abiertoTerm && <AIModalTerminaciones sucursalesAI={sucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} onCerrar={() => setAbiertoTerm(false)} />}
-      {abiertoGastos && <AIModalGastosDescuentos cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} onCerrar={() => setAbiertoGastos(false)} />}
-      {abiertoInv && <AIModalInventariosSucursal inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} onCerrar={() => setAbiertoInv(false)} />}
-      {abiertoProductos && <AIModalProductosInventario productosInventario={productosInventario} setProductosInventario={setProductosInventario} onCerrar={() => setAbiertoProductos(false)} />}
-    </div>
+        </button>
+      ))}
+      {abierto === "sucursales" && <AIModalSucursales sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} onCerrar={cerrar} />}
+      {abierto === "terminales" && <AIModalTerminaciones sucursalesAI={sucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} onCerrar={cerrar} />}
+      {abierto === "gastos" && <AIModalGastosDescuentos cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} onCerrar={cerrar} />}
+      {abierto === "inventarios" && <AIModalInventariosSucursal inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} onCerrar={cerrar} />}
+      {abierto === "productos" && <AIModalProductosInventario productosInventario={productosInventario} setProductosInventario={setProductosInventario} onCerrar={cerrar} />}
+    </>
   );
 }
 
@@ -6691,23 +6644,17 @@ function AuditoriaInterna({ onCerrarSesion }) {
   const [cuadresAuditoria, setCuadresAuditoria, cuadresListos] = usePersistedCollection("cuadres_auditoria");
   const [sucursalesAI, setSucursalesAI] = usePersistedList("sucursalesAI", [...SUCURSALES]);
   const [terminacionesAI, setTerminacionesAI] = usePersistedList("terminacionesAI", AI_TERMINACIONES_DEFAULT);
-  const [responsablesAI, setResponsablesAI] = usePersistedList("responsables_sucursal", []);
-  const [empleadosAsistencia, setEmpleadosAsistencia] = usePersistedList("empleados_asistencia", []);
-  const [cortesSucursal, setCortesSucursal, cortesSucursalListos] = usePersistedCollection("gastos_descuentos_sucursal");
   // Se lee aquí también (no solo en el departamento de Inventarios) para
   // poder eliminarlo desde Cortes › Configuración, junto con lo demás que
   // captura sucursal.
-  const [inventariosSucursal, setInventariosSucursal, inventariosSucursalListos] = usePersistedCollection("conteos_diarios_inventario");
   // También aquí (no solo en Gestión › Inventarios) para poder agregar y
   // quitar productos desde Cortes › Configuración.
-  const [productosInventario, setProductosInventario, productosInventarioListos] = usePersistedCollection("productos_inventario");
 
-  const datosListos = recepcionesListas && salidasListas && conteosListos && borradoresListos && cuadresListos && cortesSucursalListos && inventariosSucursalListos && productosInventarioListos;
+  const datosListos = recepcionesListas && salidasListas && conteosListos && borradoresListos && cuadresListos;
   const permisos = permisosRol(); // roles limitados: solo ciertos paneles; sin Configuración
-  const puedeConfigurar = !permisos && !USUARIOS_SIN_CONFIG_CORTES.has(getUsername());
   const irAPanel = (k) => { if (permisos && !permisos.paneles.includes(k)) return; setPanel(k); };
 
-  const tituloPanel = AI_PANELES_CAPTURA.find((p) => p.key === panel)?.nombre || AI_PANELES_VISUAL.find((p) => p.key === panel)?.nombre || AI_PANELES_CONFIG.find((p) => p.key === panel)?.nombre || "Panel principal";
+  const tituloPanel = AI_PANELES_CAPTURA.find((p) => p.key === panel)?.nombre || AI_PANELES_VISUAL.find((p) => p.key === panel)?.nombre || "Panel principal";
 
   return (
     <>
@@ -6720,14 +6667,13 @@ function AuditoriaInterna({ onCerrarSesion }) {
       </header>
       <main style={sx.main}>
         {!datosListos && <div style={sx.empty}>Cargando datos…</div>}
-        {datosListos && !panel && <AIHome onEnter={irAPanel} mostrarConfiguracion={puedeConfigurar} soloPaneles={permisos ? permisos.paneles : null} />}
+        {datosListos && !panel && <AIHome onEnter={irAPanel} soloPaneles={permisos ? permisos.paneles : null} />}
         {datosListos && panel === "recepcion" && <AIRecepcion recepciones={recepciones} setRecepciones={setRecepciones} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "conteo" && <AIConteo recepciones={recepciones} setRecepciones={setRecepciones} conteos={conteos} setConteos={setConteos} borradores={borradoresConteo} setBorradores={setBorradoresConteo} onSalir={() => setPanel(null)} sucursales={sucursalesAI} />}
         {datosListos && panel === "v1" && <AICierreSemanal recepciones={recepciones} sucursales={sucursalesAI} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "v3" && <AISaldoEfectivo conteos={conteos} salidas={salidas} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "salidas" && <AISalidas salidas={salidas} setSalidas={setSalidas} conteos={conteos} onSalir={() => setPanel(null)} />}
         {datosListos && panel === "auditoria" && <AIAuditoria cuadres={cuadresAuditoria} setCuadres={setCuadresAuditoria} conteos={conteos} sucursales={sucursalesAI} terminacionesAI={terminacionesAI} onSalir={() => setPanel(null)} />}
-        {datosListos && panel === "config" && puedeConfigurar && <AIConfiguracion sucursalesAI={sucursalesAI} setSucursalesAI={setSucursalesAI} terminacionesAI={terminacionesAI} setTerminacionesAI={setTerminacionesAI} responsablesAI={responsablesAI} setResponsablesAI={setResponsablesAI} empleadosAsistencia={empleadosAsistencia} setEmpleadosAsistencia={setEmpleadosAsistencia} cortesSucursal={cortesSucursal} setCortesSucursal={setCortesSucursal} inventariosSucursal={inventariosSucursal} setInventariosSucursal={setInventariosSucursal} productosInventario={productosInventario} setProductosInventario={setProductosInventario} onSalir={() => setPanel(null)} />}
       </main>
     </>
   );
@@ -8015,7 +7961,7 @@ function ConfigCuentaPantalla({ onCerrarSesion, onVolver, onAbrirHorarios }) {
       </header>
       <main style={sx.main}>
         <button onClick={onVolver} style={sx.back}>‹ Volver</button>
-        <ConfigCuentaContenido onAbrirHorarios={onAbrirHorarios} />
+        <ConfigCuentaContenido onAbrirHorarios={onAbrirHorarios} extra={puedeConfigCortes() ? <ConfigCortesOpciones /> : null} />
       </main>
     </div>
   );
