@@ -842,6 +842,20 @@ app.put("/api/notas/:id/mensajes/:mid", requireAuth, soloOficina, asyncRoute(asy
   await upsertItem(COLECCION_NOTAS, h.id, h);
   res.json(h);
 }));
+// Eliminar UN comentario del hilo (el resto del pendiente se queda). El último comentario no se puede
+// quitar: para eso se elimina el pendiente completo. Si el comentario era el recordatorio activo, el
+// recordatorio se quita con él.
+app.delete("/api/notas/:id/mensajes/:mid", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const h = await hiloPropio(req, res); if (!h) return;
+  const i = h.mensajes.findIndex((x) => x.id === req.params.mid);
+  if (i === -1) return res.status(404).json({ error: "No se encontró el comentario" });
+  if (h.mensajes.length <= 1) return res.status(400).json({ error: "Es el único comentario: para quitarlo elimina el pendiente completo." });
+  h.mensajes.splice(i, 1);
+  if (h.recordatorio && h.recordatorio.mensajeId === req.params.mid) { h.recordatorio = null; h.hechoFechas = []; }
+  h.actualizadoEn = new Date().toISOString();
+  await upsertItem(COLECCION_NOTAS, h.id, h);
+  res.json(h);
+}));
 app.put("/api/notas/:id/hecho-hoy", requireAuth, soloOficina, asyncRoute(async (req, res) => {
   const h = await hiloPropio(req, res); if (!h) return;
   const { fecha, hecho } = req.body || {};

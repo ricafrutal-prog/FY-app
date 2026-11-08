@@ -88,6 +88,7 @@ export default function Pendientes() {
         onAgregar={async (texto, recordatorio) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (h) { reemplazar(h); return true; } return false; }}
         onTitulo={async (titulo) => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { titulo }); if (h) reemplazar(h); }}
         onHecho={async (mid, hecho) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes/${mid}`, "PUT", { hecho }); if (h) reemplazar(h); }}
+        onEliminarMensaje={async (mid, texto) => { if (!window.confirm(`¿Eliminar solo este comentario?\n\n“${texto.length > 120 ? `${texto.slice(0, 120)}…` : texto}”\n\nEl resto del pendiente se queda. No se puede deshacer.`)) return; const h = await llamar(`/api/notas/${hilo.id}/mensajes/${mid}`, "DELETE"); if (h) reemplazar(h); }}
         onQuitarRec={async () => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { quitarRecordatorio: true }); if (h) reemplazar(h); }}
         onEliminar={async () => { if (!window.confirm("¿Eliminar este pendiente con todos sus comentarios? No se puede deshacer.")) return; const r = await llamar(`/api/notas/${hilo.id}`, "DELETE"); if (r !== undefined) { setHilos((p) => p.filter((x) => x.id !== hilo.id)); setAbierto(null); } }}
       />
@@ -148,7 +149,7 @@ function NuevoHilo({ onGuardar, onCancelar, guardando }) {
   );
 }
 
-function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHecho, onQuitarRec, onEliminar }) {
+function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
   const [texto, setTexto] = useState("");
   const [rec, setRec] = useState(null);
   const [titulo, setTitulo] = useState(hilo.titulo || "");
@@ -184,6 +185,9 @@ function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHe
                 {m.recordatorio && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 700, color: C.brand }}><Bell size={11} /> Recordatorio {textoDias(m.recordatorio.dias)}</span>}
               </div>
             </div>
+            {hilo.mensajes.length > 1 && (
+              <button onClick={() => onEliminarMensaje(m.id, m.texto)} title="Eliminar solo este comentario" aria-label="Eliminar solo este comentario" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, lineHeight: 0, flexShrink: 0, opacity: 0.8 }}><Trash2 size={15} color={C.bad} /></button>
+            )}
           </div>
         ))}
       </div>
