@@ -10,6 +10,7 @@ import HoraInput from "./HoraInput.jsx";
 import RangoFechas from "./RangoFechas.jsx";
 import Pendientes from "./Pendientes.jsx";
 import Procesos from "./Procesos.jsx";
+import ChecadorPropio from "./ChecadorPropio.jsx";
 import MontoInput from "./MontoInput.jsx";
 import { jornadaNeta, DIAS_NOMINA, SUCURSAL_FUERA, AREAS_PERSONAL, esAreaFuera, ordenGrupo, CONCEPTOS_NOMINA, etiquetaSemana, idSemana, semanasRecientes, ultimaSemanaCompleta, calcularFila, filaDeEmpleado, claveFila, totalNomina, autocompletarHoras, DIAS_GETDAY_NOMINA, DIAS_SEMANA_LMD, DIAS_LABORALES_DEFECTO, diasLaborales, textoDias } from "./nominaUtil";
 import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos, saldoAntesDe, saldosCorridos, movimientoDeEntrega, diferenciaEntrega, diasDesde, etiquetaEntrega, camposLigados, esLigado, gastosPorComprobar, movimientoGastoPorComprobar, movimientoCierreGC } from "./tesoreriaUtil";
@@ -688,7 +689,7 @@ export default function App({ onCerrarSesion }) {
   // Un rol restringido no puede cambiar a un departamento o modo que no le toca,
   // aunque algún botón del programa lo intentara.
   const irADepto = (k) => { if (permisos && !permisos.deptos.has(k)) return; setDepto(k); };
-  const irAModo = (k) => { if (restringidoInv && k !== "gestion" && k !== "pendientes" && k !== "procesos") return; setModo(k); };
+  const irAModo = (k) => { if (restringidoInv && k !== "gestion" && k !== "pendientes" && k !== "procesos" && k !== "checador") return; setModo(k); };
   const [cuadro, setCuadro] = useState(CUADRO_SEED);
   const [inv, setInv] = useState(INV_SEED);
   const [invMes, setInvMes] = useState(INVMES_SEED);
@@ -834,7 +835,7 @@ export default function App({ onCerrarSesion }) {
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
-      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : modo === "procesos" ? <ProcesosPantalla onCerrarSesion={onCerrarSesion} /> : (<>
+      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : modo === "procesos" ? <ProcesosPantalla onCerrarSesion={onCerrarSesion} /> : modo === "checador" ? <ChecadorPantalla onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
@@ -961,7 +962,7 @@ export default function App({ onCerrarSesion }) {
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
 function NavRail({ modo, setModo, soloGestion }) {
   const [oculta, setOculta] = useSidebarOculta();
-  const items = soloNominas() ? [["gestion", "Gestión", "LayoutGrid"], ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]] : [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]];
+  const items = soloNominas() ? [["checador", "Checador", "Clock"], ["gestion", "Gestión", "LayoutGrid"], ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]] : [["checador", "Checador", "Clock"], ["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
       <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12, flexShrink: 0 }}>
@@ -969,7 +970,7 @@ function NavRail({ modo, setModo, soloGestion }) {
       </div>
       {oculta && <BotonMostrarBarra onMostrar={() => setOculta(false)} />}
       {items.map(([k, label, icon]) => (
-        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
+        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" && k !== "checador" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" && k !== "checador" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
           <Ico name={icon} size={20} />
           <span style={{ fontSize: 9.5, fontWeight: 600 }}>{label}</span>
         </button>
@@ -990,6 +991,21 @@ function PendientesPantalla({ onCerrarSesion }) {
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}><Pendientes /></main>
+    </div>
+  );
+}
+
+/* ---------------- CHECADOR (personal de oficina: entrada y salida con huella o rostro) ---------------- */
+function ChecadorPantalla({ onCerrarSesion }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Checador</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}><ChecadorPropio lugar="oficina" titulo="Checador de oficina" /></main>
     </div>
   );
 }

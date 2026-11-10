@@ -31,7 +31,7 @@ export default function Checador() {
 
   useEffect(() => {
     if (!gestor) return;
-    apiFetch("/api/lists/sucursalesAI").then((r) => r.json()).then((d) => { const l = Array.isArray(d) ? d : []; setSucursales(l); if (l.length) setSucursal((s) => s || l[0]); }).catch(() => {});
+    apiFetch("/api/lists/sucursalesAI").then((r) => r.json()).then((d) => { const l = ["Oficina", ...(Array.isArray(d) ? d : [])]; setSucursales(l); if (l.length) setSucursal((s) => s || l[0]); }).catch(() => {});
   }, [gestor]);
 
   const cargar = useCallback(async () => {

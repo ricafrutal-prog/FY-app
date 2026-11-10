@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import net from "net";
+import { listUsers } from "./db.js";
 
 // ---------------------------------------------------------------------------------------------
 // CHECADOR en el celular del empleado.
@@ -151,7 +152,10 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
     const sucursal = sucursalPermitida(req, res, req.query.sucursal);
     if (!sucursal) return;
     const cfg = await configDe(sucursal);
-    const emps = (await getList("empleados_asistencia")) || [];
+    // El lugar "Oficina" no tiene lista de empleados: su personal son las cuentas de oficina (todas menos sucursales).
+    const emps = sucursal === LUGARES_CUENTA.oficina
+      ? (await listUsers()).filter((x) => x.role !== "sucursal").map((x) => ({ nombre: x.username, sucursal }))
+      : ((await getList("empleados_asistencia")) || []);
     const disp = (await listCollection("checador_dispositivos")).filter((d) => d.sucursal === sucursal);
     res.json({
       sucursal, config: cfg, miRed: ipClave(ipCliente(req)), esGestor: esGestor(req.user), cabeceras: esGestor(req.user) ? { xff: req.headers["x-forwarded-for"] || null, cf: req.headers["cf-connecting-ip"] || null, tc: req.headers["true-client-ip"] || null, ip: req.ip } : undefined,
@@ -248,7 +252,7 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
   async function validarLugar(req, disp, b) {
     const cfg = await configDe(disp.sucursal);
     const clave = ipClave(ipCliente(req));
-    if (!redesAprobadas(cfg).length) return { status: 403, error: "Tu sucursal todavía no tiene su red registrada." };
+    if (!redesAprobadas(cfg).length) return { status: 403, error: `${disp.sucursal} todavía no tiene su red registrada.` };
     if (!redesAprobadas(cfg).includes(clave)) return { status: 403, error: `Conéctate al Wi-Fi de ${disp.sucursal} para checar.` };
     let distancia = null;
     const lat = Number(b.lat), lng = Number(b.lng), precision = Number(b.precision);
@@ -354,6 +358,76 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
     const lugar = await validarLugar(req, disp, b);
     if (lugar.error) return res.status(lugar.status).json({ error: lugar.error });
     const r = await aplicarChecada(disp, lugar, reto.tipoChecada);
+    if (r.error) return res.status(r.status).json({ error: r.error });
+    res.json(r.resultado);
+  }));
+
+  // ---------------- Checador del PERSONAL CON CUENTA (oficina, y después almacén y producción) ----------------
+  // Cada persona entra con su propia cuenta, crea su acceso con su huella o rostro (una vez) y después checa
+  // entrada/salida confirmando con huella o rostro. El "lugar" usa la misma red y ubicación que una sucursal
+  // (config con el nombre del lugar, p. ej. "Oficina"), que un gestor configura en Configuración de cuenta.
+  const LUGARES_CUENTA = { oficina: "Oficina" };
+  const lugarCuenta = (req, res) => {
+    const nombre = LUGARES_CUENTA[req.params.lugar];
+    if (!nombre) { res.status(404).json({ error: "Lugar no encontrado" }); return null; }
+    if (req.user.role === "sucursal") { res.status(403).json({ error: "Este checador es para el personal con cuenta propia." }); return null; }
+    return nombre;
+  };
+  const miDispositivo = async (lugar, usuario) => (await listCollection("checador_dispositivos")).find((d) => d.sucursal === lugar && d.empleado === usuario && d.aprobado);
+  app.get("/api/checador/propio/:lugar", requireAuth, asyncRoute(async (req, res) => {
+    const lugar = lugarCuenta(req, res); if (!lugar) return;
+    const { fecha } = ahoraMx();
+    const d = await miDispositivo(lugar, req.user.username);
+    const c = await getItem("checadas", `chk|${lugar}|${fecha}|${req.user.username}`);
+    const cfg = await configDe(lugar);
+    res.json({ lugar, usuario: req.user.username, fecha, registrado: !!d, entrada: c?.entrada || "", salida: c?.salida || "", configurado: redesAprobadas(cfg).length > 0 });
+  }));
+  app.post("/api/checador/propio/:lugar/registro/opciones", requireAuth, asyncRoute(async (req, res) => {
+    const lugar = lugarCuenta(req, res); if (!lugar) return;
+    const u = req.user.username;
+    if (await miDispositivo(lugar, u)) return res.status(409).json({ error: "Ya tienes tu huella o rostro registrado. Si cambiaste de celular, pídele a un administrador que lo quite." });
+    const { id, challenge } = nuevoReto({ tipo: "registro", sucursal: lugar, empleado: u, propio: true });
+    res.json({
+      retoId: id, challenge, rp: { id: hostDe_(req), name: "Frutal Yogurt" },
+      user: { id: bufToB64u(Buffer.from(`${lugar}|${u}`)), name: u, displayName: u },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+      authenticatorSelection: { residentKey: "required", requireResidentKey: true, userVerification: "required" },
+      attestation: "none", timeout: 120000,
+    });
+  }));
+  app.post("/api/checador/propio/:lugar/registro/verificar", requireAuth, asyncRoute(async (req, res) => {
+    const lugar = lugarCuenta(req, res); if (!lugar) return;
+    const b = req.body || {};
+    const reto = usarReto(b.retoId, "registro");
+    if (!reto || !reto.propio || reto.sucursal !== lugar || reto.empleado !== req.user.username) return res.status(400).json({ error: "Se acabó el tiempo; vuelve a intentarlo." });
+    try {
+      const { publicKey, alg } = verificarRegistro({ clientDataJSON: b.clientDataJSON, publicKey: b.publicKey, alg: b.alg }, reto.challenge, hostDe_(req));
+      if (typeof b.id !== "string" || !b.id || b.id.length > 512) throw new Error("Respuesta inválida");
+      await upsertItem("checador_dispositivos", b.id, { id: b.id, publicKey, alg, sucursal: lugar, empleado: reto.empleado, aprobado: true, propio: true, aprobadoPor: req.user.username, creadoEn: new Date().toISOString(), ultimoUso: null });
+      res.json({ ok: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+  }));
+  app.post("/api/checador/propio/:lugar/checar/opciones", requireAuth, asyncRoute(async (req, res) => {
+    const lugar = lugarCuenta(req, res); if (!lugar) return;
+    const tipo = (req.body || {}).tipo;
+    if (tipo !== "entrada" && tipo !== "salida") return res.status(400).json({ error: "Elige entrada o salida" });
+    const d = await miDispositivo(lugar, req.user.username);
+    if (!d) return res.status(409).json({ error: "Primero registra tu huella o rostro." });
+    const { id, challenge } = nuevoReto({ tipo: "checar", sucursal: lugar, empleado: req.user.username, propio: true, tipoChecada: tipo });
+    res.json({ retoId: id, challenge, rpId: hostDe_(req), userVerification: "required", timeout: 60000, credenciales: [d.id] });
+  }));
+  app.post("/api/checador/propio/:lugar/checar/verificar", requireAuth, asyncRoute(async (req, res) => {
+    const lugar = lugarCuenta(req, res); if (!lugar) return;
+    const b = req.body || {};
+    const reto = usarReto(b.retoId, "checar");
+    if (!reto || !reto.propio || reto.sucursal !== lugar || reto.empleado !== req.user.username) return res.status(400).json({ error: "Se acabó el tiempo; vuelve a intentarlo." });
+    const disp = typeof b.id === "string" ? await getItem("checador_dispositivos", b.id) : null;
+    if (!disp || !disp.aprobado || disp.sucursal !== lugar || disp.empleado !== req.user.username) return res.status(404).json({ error: "Esa huella o rostro no está registrado en tu cuenta." });
+    try { verificarAfirmacion({ clientDataJSON: b.clientDataJSON, authenticatorData: b.authenticatorData, signature: b.signature }, disp, reto.challenge, hostDe_(req)); }
+    catch (e) { return res.status(400).json({ error: e.message }); }
+    const lg = await validarLugar(req, disp, b);
+    if (lg.error) return res.status(lg.status).json({ error: lg.error });
+    const r = await aplicarChecada(disp, lg, reto.tipoChecada);
     if (r.error) return res.status(r.status).json({ error: r.error });
     res.json(r.resultado);
   }));
