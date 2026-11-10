@@ -9,9 +9,10 @@ import ConfigCuentaContenido from "./ConfigCuenta.jsx";
 import HoraInput from "./HoraInput.jsx";
 import RangoFechas from "./RangoFechas.jsx";
 import Pendientes from "./Pendientes.jsx";
+import Procesos from "./Procesos.jsx";
 import MontoInput from "./MontoInput.jsx";
 import { jornadaNeta, DIAS_NOMINA, SUCURSAL_FUERA, AREAS_PERSONAL, esAreaFuera, ordenGrupo, CONCEPTOS_NOMINA, etiquetaSemana, idSemana, semanasRecientes, ultimaSemanaCompleta, calcularFila, filaDeEmpleado, claveFila, totalNomina, autocompletarHoras, DIAS_GETDAY_NOMINA, DIAS_SEMANA_LMD, DIAS_LABORALES_DEFECTO, diasLaborales, textoDias } from "./nominaUtil";
-import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos, saldoAntesDe, saldosCorridos, movimientoDeEntrega, diferenciaEntrega, diasDesde, etiquetaEntrega } from "./tesoreriaUtil";
+import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos, saldoAntesDe, saldosCorridos, movimientoDeEntrega, diferenciaEntrega, diasDesde, etiquetaEntrega, camposLigados, esLigado, gastosPorComprobar, movimientoGastoPorComprobar, movimientoCierreGC } from "./tesoreriaUtil";
 import { useSidebarOculta, PanelCabecera, BotonMostrarBarra } from "./SidebarToggle.jsx";
 import { RUTA_POR_DEFECTO, construirRuta, rutaNorm, rutaCoincide } from "./rutaCortes";
 import { ESTATUS_CON_HORAS, ESTATUS_COLOR, NOMBRES_DIA, fechaDDMMAAAA, diaDeSemana, fmtHoras, horasDeRegistro, mesActual, semanasDelMes, resumenEmpleado, personalDeSucursal, semanasEntre, estatusPersona, rotacionSucursal, finDeMes, MOTIVOS_BAJA, fechaLocalISO, UMBRAL_ALERTA, UMBRAL_BAJA, VENTANA_ALERTA_DIAS, horarioDe, horasEsperadas, estatusEfectivo, diferenciaHoras, minutosTarde, TOLERANCIA_MIN } from "./asistenciaUtil";
@@ -687,7 +688,7 @@ export default function App({ onCerrarSesion }) {
   // Un rol restringido no puede cambiar a un departamento o modo que no le toca,
   // aunque algún botón del programa lo intentara.
   const irADepto = (k) => { if (permisos && !permisos.deptos.has(k)) return; setDepto(k); };
-  const irAModo = (k) => { if (restringidoInv && k !== "gestion" && k !== "pendientes") return; setModo(k); };
+  const irAModo = (k) => { if (restringidoInv && k !== "gestion" && k !== "pendientes" && k !== "procesos") return; setModo(k); };
   const [cuadro, setCuadro] = useState(CUADRO_SEED);
   const [inv, setInv] = useState(INV_SEED);
   const [invMes, setInvMes] = useState(INVMES_SEED);
@@ -833,7 +834,7 @@ export default function App({ onCerrarSesion }) {
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
-      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : (<>
+      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : modo === "procesos" ? <ProcesosPantalla onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
@@ -960,7 +961,7 @@ export default function App({ onCerrarSesion }) {
 /* ---------------- BARRA DE MODOS (Gestión / Tareas) ---------------- */
 function NavRail({ modo, setModo, soloGestion }) {
   const [oculta, setOculta] = useSidebarOculta();
-  const items = soloNominas() ? [["gestion", "Gestión", "LayoutGrid"], ["pendientes", "Pendientes", "StickyNote"]] : [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"]];
+  const items = soloNominas() ? [["gestion", "Gestión", "LayoutGrid"], ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]] : [["gestion", "Gestión", "LayoutGrid"], ["tareas", "Tareas y Reportes", "ListChecks"], ["finanzas", "Finanzas", "TrendingUp"], ...(CONC_USUARIOS.has(getUsername()) ? [["personal", "Personal", "User"]] : []), ["pendientes", "Pendientes", "StickyNote"], ["procesos", "Procesos", "ClipboardCheck"]];
   return (
     <div className="noprint" style={{ width: 66, flexShrink: 0, background: "#0d0d12", display: "flex", flexDirection: "column", alignItems: "center", padding: "16px 0", gap: 6, position: "sticky", top: 0, height: "100vh", boxSizing: "border-box" }}>
       <div style={{ width: 44, height: 44, borderRadius: 14, background: T.brand, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 12, flexShrink: 0 }}>
@@ -968,7 +969,7 @@ function NavRail({ modo, setModo, soloGestion }) {
       </div>
       {oculta && <BotonMostrarBarra onMostrar={() => setOculta(false)} />}
       {items.map(([k, label, icon]) => (
-        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" && k !== "pendientes" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" && k !== "pendientes" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
+        <button key={k} onClick={() => setModo(k)} tabIndex={soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" ? -1 : 0} className="deptobtn" style={{ width: 54, padding: "10px 0", borderRadius: 11, border: "none", cursor: "pointer", ...(soloGestion && k !== "gestion" && k !== "pendientes" && k !== "procesos" ? ESTILO_APAGADO : {}), background: modo === k ? T.brand : "transparent", color: modo === k ? "#fff" : "rgba(255,255,255,.6)", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, fontFamily: "inherit" }}>
           <Ico name={icon} size={20} />
           <span style={{ fontSize: 9.5, fontWeight: 600 }}>{label}</span>
         </button>
@@ -989,6 +990,21 @@ function PendientesPantalla({ onCerrarSesion }) {
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}><Pendientes /></main>
+    </div>
+  );
+}
+
+/* ---------------- PROCESOS (lo que cada persona de oficina hace a diario o cada semana) ---------------- */
+function ProcesosPantalla({ onCerrarSesion }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Procesos</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}><Procesos /></main>
     </div>
   );
 }
@@ -4969,6 +4985,7 @@ const AI_ENTREGA_ENTREGA = ["Elías Moreno"];
 
 function AISalidaForm({ onGuardar, onGuardarDirecto, onCancelar, folio, inicial, disponible }) {
   const [fecha, setFecha] = useState(inicial ? inicial.fecha : aiHoyISO());
+  const [nombresRecibeEf, setNombresRecibeEf] = usePersistedList("nombresRecibeEfectivoAI", AI_ENTREGA_RECIBE);
   const [recibe, setRecibe] = useState(inicial ? inicial.recibe : AI_ENTREGA_RECIBE[0]);
   const [entrega, setEntrega] = useState(inicial ? inicial.entrega : AI_ENTREGA_ENTREGA[0]);
   const [cantidades, setCantidades] = useState(inicial ? inicial.cantidades || {} : {});
@@ -5005,11 +5022,7 @@ function AISalidaForm({ onGuardar, onGuardarDirecto, onCancelar, folio, inicial,
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
         <TField label="Fecha"><input type="date" value={fecha} max={aiHoyISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} /></TField>
-        <TField label="Quién recibe">
-          <select value={recibe} onChange={(e) => setRecibe(e.target.value)} className="sel" style={sx.sel}>
-            {AI_ENTREGA_RECIBE.map((n) => <option key={n} value={n}>{n}</option>)}
-          </select>
-        </TField>
+        <AISelectorNombre label="Quién recibe" valor={recibe} onChange={setRecibe} opciones={[...new Set([...(nombresRecibeEf || []), ...(recibe ? [recibe] : [])])]} onAgregar={(n) => setNombresRecibeEf((p) => (p.includes(n) ? p : [...p, n]))} onEliminar={(n) => { setNombresRecibeEf((p) => p.filter((x) => x !== n)); if (recibe === n) setRecibe(""); }} placeholder="Selecciona quién recibe" />
         <TField label="Quién entrega">
           <select value={entrega} onChange={(e) => setEntrega(e.target.value)} className="sel" style={sx.sel}>
             {AI_ENTREGA_ENTREGA.map((n) => <option key={n} value={n}>{n}</option>)}
@@ -6781,12 +6794,13 @@ function ControlInterno({ onCerrarSesion }) {
    La primera vez se pide el saldo inicial; después el saldo se mueve solo con los movimientos.
    Editar o borrar lo ya capturado se hace en Configuración de cuenta › Tesorería (nivel alto).
    ============================================================ */
-const TES_COLS = "78px 1fr 1fr 1fr 1.2fr 2.4fr 118px 118px 124px 26px";
+const TES_COLS = "78px repeat(3, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 2.4fr) 110px 110px 112px 26px";
 const TES_ORDEN = ["folio", "categoria", "subcategoria", "detalle", "nombre", "concepto", "ingreso", "egreso"];
 const TES_ROTULOS = { folio: "Folio", categoria: "Categoría", subcategoria: "Subcategoría", detalle: "Detalle", nombre: "Nombre", concepto: "Concepto", ingreso: "Ingreso", egreso: "Egreso" };
+const CATALOGO_TES = ["categoria", "subcategoria", "detalle", "nombre"]; // se eligen de las listas de Configuración de cuenta › Categorías de Tesorería
 const tesDosPalabras = (t) => { const p = t.split(/\s+/); return p.length > 2 ? p.slice(0, 2).join(" ") : t; };
 
-function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], encargados, onAgregarEncargado, onEliminarEncargado, onSiguiente, onCancelar }) {
+function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], catalogo = {}, todasCapturas = [], encargados, onAgregarEncargado, onEliminarEncargado, onSiguiente, onCancelar }) {
   const [fecha, setFecha] = useState(inicial?.fecha || fechaLocalISO());
   const [encargado, setEncargado] = useState(inicial?.encargado || "");
   const [saldo, setSaldo] = useState(inicial?.saldoInicial != null ? String(inicial.saldoInicial) : "");
@@ -6812,6 +6826,12 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
     return { ...m, [campo]: valor };
   }));
   const agregar = () => { pendienteFoco.current = { fila: movs.length, campo: "folio" }; setMovs((p) => [...p, movimientoVacio()]); };
+  // Entrega de efectivo para gastos que se comprueban después: sale de caja hoy y queda abierta con folio GC-n.
+  const agregarGC = () => {
+    const fila = movimientoGastoPorComprobar();
+    pendienteFoco.current = { fila: movs.length, campo: "folio" };
+    setMovs((p) => (p.length === 1 && !p[0].folio && !p[0].concepto && !tesNum(p[0].ingreso) && !tesNum(p[0].egreso) ? [fila] : [...p, fila]));
+  };
   // Recibir una entrega de efectivo de Cortes: agrega su renglón de ingreso con el folio de la entrega.
   const [verEntregas, setVerEntregas] = useState(false);
   const enUso = new Set(movs.filter((m) => m.entregaId != null).map((m) => String(m.entregaId)));
@@ -6821,6 +6841,15 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
     setMovs((p) => (p.length === 1 && !p[0].folio && !p[0].concepto && !tesNum(p[0].ingreso) && !tesNum(p[0].egreso) ? [fila] : [...p, fila]));
     setVerEntregas(false);
   };
+  // Categoría, subcategoría, detalle y nombre solo admiten lo dado de alta en Configuración de cuenta:
+  // al salir del campo se acomoda al valor exacto de la lista, o se vacía si no existe.
+  const validarCatalogo = (i, c) => setMovs((p) => p.map((m, idx) => {
+    if (idx !== i || m.entregaId != null) return m;
+    const v = String(m[c] || "").trim();
+    if (!v) return m[c] === "" ? m : { ...m, [c]: "" };
+    const hallado = (catalogo[c] || []).find((o) => o.toLowerCase() === v.toLowerCase());
+    return { ...m, [c]: hallado || "" };
+  }));
   const quitar = (i) => setMovs((p) => (p.length > 1 ? p.filter((_, idx) => idx !== i) : p));
   const enfocar = (fila, campo) => { const el = document.querySelector(`[data-tes="${fila}-${campo}"]`); if (el) el.focus(); };
   const alTeclear = (e, i, campo) => {
@@ -6842,12 +6871,13 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
     if (!ok) return;
     onSiguiente({
       fecha, encargado, saldoInicial: pideSaldo ? tesNum(saldo) : null,
-      movimientos: movs.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...(m.entregaId != null ? { entregaId: m.entregaId, entregaFolio: m.entregaFolio, montoEntrega: m.montoEntrega } : {}) })),
+      movimientos: movs.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...camposLigados(m) })),
     });
   };
   const celda = { ...sx.sel, padding: "7px 8px", fontSize: 12.5, minWidth: 0 };
   return (
     <div style={{ display: "grid", gap: 14 }}>
+      {CATALOGO_TES.map((c) => <datalist key={c} id={`tes-dl-${c}`}>{(catalogo[c] || []).map((o) => <option key={o} value={o} />)}</datalist>)}
       <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>Nueva captura de tesorería</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
@@ -6864,7 +6894,7 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
       <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
         <div style={{ fontWeight: 600, fontSize: 14 }}>Movimientos</div>
         <div style={{ overflowX: "auto" }}>
-          <div style={{ minWidth: 1210, display: "grid", gap: 6 }}>
+          <div style={{ minWidth: 1100, display: "grid", gap: 6 }}>
             <div style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, fontSize: 11, fontWeight: 700, color: T.muted, padding: "0 2px" }}>
               {TES_ORDEN.map((c) => <div key={c}>{TES_ROTULOS[c]}</div>)}<div style={{ textAlign: "right" }}>Saldo</div><div />
             </div>
@@ -6874,16 +6904,30 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
             {movs.map((m, i) => (
               <Fragment key={i}>
               <div style={{ display: "grid", gridTemplateColumns: TES_COLS, gap: 6, alignItems: "center" }}>
-                {TES_ORDEN.map((c) => (
+                {TES_ORDEN.map((c) => CATALOGO_TES.includes(c) ? (
                   <input
                     key={c}
                     data-tes={`${i}-${c}`}
-                    readOnly={c === "folio" && m.entregaId != null}
+                    list={`tes-dl-${c}`}
+                    readOnly={m.entregaId != null}
+                    value={m[c] || ""}
+                    onChange={(e) => setMovs((p) => p.map((x, idx) => (idx === i ? { ...x, [c]: e.target.value.slice(0, 40) } : x)))}
+                    onBlur={() => validarCatalogo(i, c)}
+                    onKeyDown={(e) => alTeclear(e, i, c)}
+                    autoComplete="off"
+                    className="sel"
+                    style={celda}
+                  />
+                ) : (
+                  <input
+                    key={c}
+                    data-tes={`${i}-${c}`}
+                    readOnly={(c === "folio" && m.entregaId != null) || (m.gcTipo === "cierre" && (c === "ingreso" || c === "egreso"))}
                     value={m[c]}
                     onChange={(e) => poner(i, c, e.target.value)}
                     onKeyDown={(e) => alTeclear(e, i, c)}
                     inputMode={c === "folio" ? "numeric" : c === "ingreso" || c === "egreso" ? "decimal" : "text"}
-                    placeholder={c === "ingreso" || c === "egreso" ? "0.00" : c === "concepto" ? "Describe el movimiento" : ""}
+                    placeholder={c === "ingreso" || c === "egreso" ? "0.00" : c === "concepto" ? (m.gcTipo === "entrega" ? "Gasto por comprobar: describe el movimiento" : "Describe el movimiento") : ""}
                     maxLength={c === "concepto" ? 240 : undefined}
                     spellCheck={c === "concepto"}
                     lang="es"
@@ -6920,13 +6964,13 @@ function TesoreriaForm({ inicial, pideSaldo, saldoInicialDia, pendientes = [], e
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button onClick={agregar} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: "#fff", color: T.brand, border: `1px solid ${T.brand}` }}>+ Agregar movimiento</button>
             {porElegir.length > 0 && <button onClick={() => setVerEntregas((v) => !v)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: T.brand }}>Recibir entrega ({porElegir.length})</button>}
+            <button onClick={agregarGC} className="actbtn" style={{ ...sx.actbtn, fontSize: 11.5, padding: "6px 12px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>+ Gasto por comprobar</button>
           </div>
           <div style={{ fontSize: 12.5, color: T.inkSoft, display: "flex", gap: 16, flexWrap: "wrap" }}>
             <span>Ingresos <strong style={{ color: T.ok }}>{aiMoney(tot.ingresos)}</strong></span>
             <span>Egresos <strong style={{ color: T.bad }}>{aiMoney(tot.egresos)}</strong></span>
           </div>
         </div>
-        <div style={{ fontSize: 11.5, color: T.muted }}>Cada movimiento lleva folio, concepto y un monto (ingreso o egreso, no los dos). Con Enter pasas al siguiente campo.</div>
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
@@ -7010,17 +7054,171 @@ function TesoreriaRevision({ datos, saldoPrevio, soloLectura, onAtras, onFinaliz
   );
 }
 
+/* Arqueo: se cuenta el efectivo físico por denominación y se compara contra el saldo del sistema. */
+function ArqueoTabla({ cantidades, soloLectura, onChange }) {
+  return <AITablaDenominaciones cantidades={cantidades} onChange={onChange} denoms={AI_DENOM_CONTEO} agrupado conMonedas soloLectura={soloLectura} />;
+}
+function ArqueoResumen({ saldoSistema, contado }) {
+  const dif = (aiCent(contado) - aiCent(saldoSistema)) / 100;
+  const col = dif === 0 ? T.ok : T.bad;
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, fontSize: 13 }}>
+      <div><div style={{ color: T.muted, fontSize: 11 }}>Saldo en sistema</div><strong>{aiMoney(saldoSistema)}</strong></div>
+      <div><div style={{ color: T.muted, fontSize: 11 }}>Efectivo contado</div><strong>{aiMoney(contado)}</strong></div>
+      <div><div style={{ color: T.muted, fontSize: 11 }}>Diferencia</div><strong style={{ color: col }}>{dif === 0 ? "Cuadra" : `${dif > 0 ? "Sobran " : "Faltan "}${aiMoney(Math.abs(dif))}`}</strong></div>
+    </div>
+  );
+}
+function ArqueoForm({ saldoSistema, encargados, onGuardar, onCancelar }) {
+  const [fecha, setFecha] = useState(fechaLocalISO());
+  const [encargado, setEncargado] = useState("");
+  const [cantidades, setCantidades] = useState({});
+  const [obs, setObs] = useState("");
+  const contado = aiTotalConteo(cantidades);
+  const dif = (aiCent(contado) - aiCent(saldoSistema)) / 100;
+  const ok = !!fecha && !!encargado && !aiTablaVacia(cantidades);
+  const guardar = () => {
+    if (!ok) return;
+    if (dif !== 0 && !window.confirm(`El efectivo contado no coincide con el sistema (${dif > 0 ? "sobran" : "faltan"} ${aiMoney(Math.abs(dif))}). ¿Guardar el arqueo así?`)) return;
+    onGuardar({ fecha, encargado, cantidades, contado, saldoSistema, diferencia: dif, observaciones: obs.trim() });
+  };
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Nuevo arqueo</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+          <TField label="Quién cuenta">
+            <select value={encargado} onChange={(e) => setEncargado(e.target.value)} className="sel" style={sx.sel}>
+              <option value="">Selecciona</option>
+              {encargados.map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+          </TField>
+          <TField label="Fecha del arqueo"><input type="date" value={fecha} max={fechaLocalISO()} onChange={(e) => setFecha(e.target.value)} className="sel" style={sx.sel} /></TField>
+        </div>
+      </div>
+      <div style={{ ...sx.repCard, display: "grid", gap: 12 }}>
+        <div style={{ fontWeight: 600, fontSize: 14 }}>Efectivo contado</div>
+        <ArqueoTabla cantidades={cantidades} onChange={(d, v) => setCantidades((p) => ({ ...p, [d]: v }))} />
+        <ArqueoResumen saldoSistema={saldoSistema} contado={contado} />
+        <TField label="Observaciones (opcional)"><input value={obs} onChange={(e) => setObs(e.target.value.slice(0, 240))} className="sel" style={sx.sel} /></TField>
+      </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button onClick={onCancelar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+        <button onClick={guardar} disabled={!ok} title={ok ? "" : "Elige quién cuenta y captura el efectivo"} className="actbtn" style={{ ...sx.actbtn, background: ok ? T.ink : T.line, color: ok ? "#fff" : T.muted, cursor: ok ? "pointer" : "not-allowed" }}>Guardar arqueo</button>
+      </div>
+    </div>
+  );
+}
+function ArqueoVer({ a, onCerrar }) {
+  return (
+    <div style={{ ...sx.repCard, display: "grid", gap: 14 }}>
+      <div style={{ fontWeight: 700, fontSize: 14 }}>Arqueo del {a.fecha} · {a.encargado}</div>
+      <ArqueoResumen saldoSistema={a.saldoSistema} contado={a.contado} />
+      <ArqueoTabla cantidades={a.cantidades || {}} soloLectura />
+      {a.observaciones && <div style={{ fontSize: 12.5, color: T.inkSoft }}>Observaciones: {a.observaciones}</div>}
+      <div style={{ display: "flex", justifyContent: "flex-end" }}><button onClick={onCerrar} className="actbtn" style={{ ...sx.actbtn, background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cerrar</button></div>
+    </div>
+  );
+}
+
+/* Gastos por comprobar: efectivo entregado (GC-n) que se cierra al devolver lo que sobró y recibir los comprobantes físicos. */
+function GastosPanel({ gastos, hoyISO, onCerrarGasto }) {
+  const [cerrando, setCerrando] = useState(null); // id del gasto que se está cerrando
+  const [dev, setDev] = useState("");
+  const [papeles, setPapeles] = useState(false);
+  const abiertos = gastos.filter((g) => !g.cerrado).sort((a, b) => String(a.fecha).localeCompare(String(b.fecha)) || (a.folio - b.folio));
+  const cerrados = gastos.filter((g) => g.cerrado).sort((a, b) => String(b.fechaCierre).localeCompare(String(a.fechaCierre)) || (b.folio - a.folio));
+  const pendienteTotal = abiertos.reduce((s, g) => s + g.entregado, 0);
+  const abrir = (g) => { setCerrando(g.id); setDev(""); setPapeles(false); };
+  const confirmar = (g) => {
+    const d = tesNum(dev);
+    if (d > g.entregado) { window.alert("Lo devuelto no puede ser mayor a lo entregado."); return; }
+    onCerrarGasto(g, d);
+  };
+  return (
+    <div style={{ display: "grid", gap: 14 }}>
+      <div style={{ ...sx.repCard, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Pendiente por comprobar</div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 34, fontWeight: 700, color: pendienteTotal ? T.warn : T.brand, marginTop: 2 }}>{aiMoney(pendienteTotal)}</div>
+        </div>
+        <div style={{ fontSize: 12, color: T.muted, maxWidth: 380 }}>Se crean en una captura con "+ Gasto por comprobar". Se cierran aquí cuando regresan el sobrante (si hubo) y entregan los comprobantes.</div>
+      </div>
+      <div style={{ ...sx.repCard, display: "grid", gap: 10 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Abiertos {abiertos.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "2px 8px", borderRadius: 99, color: T.warn, background: T.warnSoft, marginLeft: 6 }}>{abiertos.length}</span>}</div>
+        {abiertos.length === 0 && <div style={{ fontSize: 12, color: T.muted }}>No hay gastos por comprobar abiertos.</div>}
+        {abiertos.map((g) => {
+          const dias = diasDesde(g.fecha, hoyISO);
+          const d = tesNum(dev);
+          const comprobado = Math.round((g.entregado - d) * 100) / 100;
+          return (
+            <div key={g.id} style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8, display: "grid", gap: 8 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13 }}><strong>Folio {g.folio}</strong> · {g.fecha}{g.nombre ? ` · ${g.nombre}` : ""}</div>
+                  <div style={{ fontSize: 11.5, color: dias >= 3 ? T.bad : T.muted, fontWeight: dias >= 3 ? 600 : 400 }}>{g.concepto || ""}{g.concepto ? " · " : ""}{dias <= 0 ? "entregado hoy" : `hace ${dias} día${dias === 1 ? "" : "s"}`}</div>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <strong>{aiMoney(g.entregado)}</strong>
+                  {cerrando !== g.id && <button onClick={() => abrir(g)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 12px", background: T.brand }}>Cerrar</button>}
+                </div>
+              </div>
+              {cerrando === g.id && (
+                <div style={{ background: T.paper, borderRadius: 10, padding: 12, display: "grid", gap: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, alignItems: "end" }}>
+                    <TField label="Efectivo devuelto ($)"><input value={dev} onChange={(e) => setDev(limpiarMonto(e.target.value))} inputMode="decimal" placeholder="0.00" className="sel" style={sx.sel} /></TField>
+                    <div><div style={{ color: T.muted, fontSize: 11 }}>Gastado (con comprobantes)</div><strong style={{ fontSize: 15 }}>{aiMoney(Math.max(comprobado, 0))}</strong></div>
+                  </div>
+                  {comprobado > 0 && (
+                    <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, cursor: "pointer" }}>
+                      <input type="checkbox" checked={papeles} onChange={(e) => setPapeles(e.target.checked)} />
+                      Recibí los comprobantes físicos por {aiMoney(comprobado)}
+                    </label>
+                  )}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                    <button onClick={() => setCerrando(null)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 12px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Cancelar</button>
+                    <button onClick={() => confirmar(g)} disabled={d > g.entregado || (comprobado > 0 && !papeles)} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 12px", background: (d > g.entregado || (comprobado > 0 && !papeles)) ? T.line : T.ink, color: (d > g.entregado || (comprobado > 0 && !papeles)) ? T.muted : "#fff" }}>Continuar a la captura</button>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: T.muted }}>Se abre una captura con el renglón de cierre ya llenado; al finalizarla queda cerrado.</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {cerrados.length > 0 && (
+        <div style={{ ...sx.repCard, display: "grid", gap: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Cerrados</div>
+          {cerrados.map((g) => (
+            <div key={g.id} style={{ borderTop: `1px solid ${T.lineSoft}`, paddingTop: 8, fontSize: 12.5, display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <span><strong>Folio {g.folio}</strong> · {g.fecha}{g.nombre ? ` · ${g.nombre}` : ""} · cerrado el {g.fechaCierre}</span>
+              <span style={{ color: T.muted }}>entregado {aiMoney(g.entregado)} · devuelto {aiMoney(g.devuelto)} · comprobado {aiMoney(g.comprobado)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Tesoreria({ onCerrarSesion }) {
   const [capturas, setCapturas, capturasListas] = usePersistedCollection("tesoreria_capturas");
+  const [arqueos, setArqueos, arqueosListos] = usePersistedCollection("tesoreria_arqueos");
+  const [arqueoId, setArqueoId] = useState(null);
   const [saldoDocs, setSaldoDocs, saldoListo] = usePersistedCollection("tesoreria_saldo");
   const [salidas, , salidasListas] = usePersistedCollection("salidas"); // entregas de efectivo de Cortes (solo se leen)
   const [encargados, setEncargados] = usePersistedList("encargados_tesoreria", []);
+  const [catCat] = usePersistedList("categorias_tesoreria", []);
+  const [catSub] = usePersistedList("subcategorias_tesoreria", []);
+  const [catDet] = usePersistedList("detalles_tesoreria", []);
+  const [catNom] = usePersistedList("nombres_tesoreria", []);
+  const catalogo = { categoria: catCat, subcategoria: catSub, detalle: catDet, nombre: catNom };
   const [paso, setPaso] = useState("inicio"); // inicio | lista | entregas | captura | revision | ver
   const [borrador, setBorrador] = useState(null);
   const [verId, setVerId] = useState(null);
   const [mesF, setMesF] = useState("todos");
   const [anioF, setAnioF] = useState("todos");
-  const listos = capturasListas && saldoListo && salidasListas;
+  const listos = capturasListas && saldoListo && salidasListas && arqueosListos;
   const saldoDoc = saldoDocs.find((s) => s.id === SALDO_ID) || null;
   // Entregas por recibir: todas las finalizadas en Cortes que ningún renglón de Tesorería tenga todavía ligadas.
   const hoyISO = fechaLocalISO();
@@ -7029,6 +7227,8 @@ function Tesoreria({ onCerrarSesion }) {
     return salidas.filter((s) => s.estado === "finalizado" && Number(s.monto) > 0 && !recibidas.has(String(s.id)))
       .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || (Number(b.folio) || 0) - (Number(a.folio) || 0)); // de la más reciente a la más vieja
   }, [capturas, salidas]);
+  const gastosGC = useMemo(() => gastosPorComprobar(capturas), [capturas]);
+  const gcAbiertos = gastosGC.filter((g) => !g.cerrado).length;
   const atrasadas = pendientes.filter((s) => diasDesde(s.fecha, hoyISO) >= 1).length;
   const saldoNow = saldoDoc ? saldoActual(saldoDoc.monto, capturas) : null;
   const todos = useMemo(() => capturas.reduce((o, c) => { const t = totalesDe(c.movimientos || []); return { i: o.i + t.ingresos, e: o.e + t.egresos }; }, { i: 0, e: 0 }), [capturas]);
@@ -7050,7 +7250,12 @@ function Tesoreria({ onCerrarSesion }) {
   };
   const capturaVista = paso === "ver" ? capturas.find((c) => c.id === verId) : null;
   const saldoPrevio = saldoDoc ? saldoNow : borrador?.saldoInicial ?? null;
-  const subtitulo = { inicio: "Panel principal", lista: "Capturas", entregas: "Entregas por recibir", captura: "Nueva captura", revision: "Revisión", ver: "Detalle" }[paso];
+  const subtitulo = { inicio: "Panel principal", lista: "Capturas", entregas: "Entregas por recibir", captura: "Nueva captura", revision: "Revisión", ver: "Detalle", arqueos: "Arqueo de caja", arqueo: "Nuevo arqueo", arqueoVer: "Detalle del arqueo", gastos: "Gastos por comprobar" }[paso];
+  const guardarArqueo = (d) => {
+    setArqueos((p) => [...p, { id: `arq-${Date.now()}`, ...d, creadoEn: new Date().toISOString(), creadoPor: getUsername() }]);
+    setPaso("arqueos");
+  };
+  const arqueoVista = paso === "arqueoVer" ? arqueos.find((a) => a.id === arqueoId) : null;
 
   return (
     <>
@@ -7062,16 +7267,42 @@ function Tesoreria({ onCerrarSesion }) {
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}>
-        {(paso === "lista" || paso === "entregas") && <button onClick={() => setPaso("inicio")} style={sx.back}>‹ Tesorería</button>}
+        {(paso === "lista" || paso === "entregas" || paso === "arqueos" || paso === "gastos") && <button onClick={() => setPaso("inicio")} style={sx.back}>‹ Tesorería</button>}
         <div style={sx.h1row}>
-          <h1 style={sx.h1}>{paso === "entregas" ? "Entregas por recibir" : "Tesorería"}</h1>
+          <h1 style={sx.h1}>{paso === "entregas" ? "Entregas por recibir" : paso === "gastos" ? "Gastos por comprobar" : paso.startsWith("arqueo") ? "Arqueo de caja" : "Tesorería"}</h1>
+          {paso === "arqueos" && listos && saldoNow != null && <AIBotonNuevo label="Nuevo arqueo" enProceso={false} onClick={() => setPaso("arqueo")} />}
           {paso === "lista" && listos && <AIBotonNuevo label="Nueva captura" enProceso={false} onClick={() => { setBorrador(null); setPaso("captura"); }} />}
         </div>
         {!listos ? <div style={sx.empty}>Cargando datos…</div> : (
           <>
-            {paso === "captura" && <TesoreriaForm inicial={borrador} pideSaldo={!saldoDoc} saldoInicialDia={saldoNow} pendientes={pendientes} encargados={encargados} onAgregarEncargado={agregarEncargado} onEliminarEncargado={eliminarEncargado} onSiguiente={(d) => { setBorrador(d); setPaso("revision"); }} onCancelar={() => { setBorrador(null); setPaso("inicio"); }} />}
+            {paso === "captura" && <TesoreriaForm inicial={borrador} pideSaldo={!saldoDoc} saldoInicialDia={saldoNow} pendientes={pendientes} catalogo={catalogo} todasCapturas={capturas} encargados={encargados} onAgregarEncargado={agregarEncargado} onEliminarEncargado={eliminarEncargado} onSiguiente={(d) => { setBorrador(d); setPaso("revision"); }} onCancelar={() => { setBorrador(null); setPaso("inicio"); }} />}
             {paso === "revision" && borrador && <TesoreriaRevision datos={borrador} saldoPrevio={saldoPrevio} onAtras={() => setPaso("captura")} onFinalizar={finalizar} />}
             {paso === "ver" && capturaVista && <TesoreriaRevision datos={capturaVista} saldoPrevio={saldoDoc ? saldoAntesDe(saldoDoc.monto, capturas, capturaVista.id) : null} soloLectura onCerrar={() => { setVerId(null); setPaso("lista"); }} />}
+            {paso === "gastos" && <GastosPanel gastos={gastosGC} hoyISO={hoyISO} onCerrarGasto={(g, d) => { setBorrador({ movimientos: [movimientoCierreGC(g, d)] }); setPaso("captura"); }} />}
+            {paso === "arqueo" && <ArqueoForm saldoSistema={saldoNow} encargados={encargados} onGuardar={guardarArqueo} onCancelar={() => setPaso("arqueos")} />}
+            {paso === "arqueoVer" && arqueoVista && <ArqueoVer a={arqueoVista} onCerrar={() => { setArqueoId(null); setPaso("arqueos"); }} />}
+            {paso === "arqueos" && (
+              <>
+                <div style={{ ...sx.repCard, marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: "0.05em" }}>Saldo en sistema</div>
+                  <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 34, fontWeight: 700, color: saldoNow == null ? T.muted : T.brand, marginTop: 2 }}>{saldoNow == null ? "—" : aiMoney(saldoNow)}</div>
+                  {saldoNow == null && <div style={{ fontSize: 12, color: T.muted, marginTop: 4 }}>Para hacer un arqueo primero se necesita el saldo inicial (se pide en la primera captura de Tesorería).</div>}
+                </div>
+                {arqueos.length === 0 ? <div style={sx.empty}>Aún no hay arqueos.</div> : (
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {[...arqueos].sort((a, b) => b.fecha.localeCompare(a.fecha) || String(b.id).localeCompare(String(a.id))).map((a) => (
+                      <div key={a.id} style={{ ...sx.repCard, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                        <div>
+                          <div style={{ fontSize: 13.5, fontWeight: 700 }}>{a.fecha} · {a.encargado}</div>
+                          <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>Sistema {aiMoney(a.saldoSistema)} · contado {aiMoney(a.contado)} · <strong style={{ color: a.diferencia === 0 ? T.ok : T.bad }}>{a.diferencia === 0 ? "cuadra" : `${a.diferencia > 0 ? "sobran" : "faltan"} ${aiMoney(Math.abs(a.diferencia))}`}</strong></div>
+                        </div>
+                        <button onClick={() => { setArqueoId(a.id); setPaso("arqueoVer"); }} className="actbtn" style={{ ...sx.actbtn, fontSize: 11, padding: "5px 12px", background: "#fff", color: T.ink, border: `1px solid ${T.line}` }}>Ver</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
             {paso === "inicio" && (
               <>
                 <div style={sx.sectionTitle}>Captura</div>
@@ -7086,6 +7317,19 @@ function Tesoreria({ onCerrarSesion }) {
                     <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>Entregas por recibir</div>
                     <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Efectivo de Cortes pendiente de recibir</div>
                     {pendientes.length > 0 && <span style={{ display: "inline-block", marginTop: 8, fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: atrasadas ? T.bad : T.warn, background: atrasadas ? "#FDECEA" : T.warnSoft }}>{pendientes.length} pendiente{pendientes.length === 1 ? "" : "s"}</span>}
+                  </button>
+                </div>
+                <div style={{ ...sx.cards4, marginBottom: 30, marginTop: -16 }}>
+                  <button onClick={() => setPaso("arqueos")} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
+                    <Ico name="Scale" size={30} strokeWidth={1.6} color={T.brand} />
+                    <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>Arqueo de caja</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Contar el efectivo físico contra el saldo</div>
+                  </button>
+                  <button onClick={() => setPaso("gastos")} className="rowbtn" style={{ ...sx.deptoCard, cursor: "pointer" }}>
+                    <Ico name="Receipt" size={30} strokeWidth={1.6} color={T.brand} />
+                    <div style={{ fontWeight: 700, fontSize: 13.5, marginTop: 10 }}>Gastos por comprobar</div>
+                    <div style={{ fontSize: 11, color: T.muted, marginTop: 4 }}>Efectivo entregado pendiente de justificar</div>
+                    {gcAbiertos > 0 && <span style={{ display: "inline-block", marginTop: 8, fontSize: 10.5, fontWeight: 700, padding: "2px 9px", borderRadius: 99, color: T.warn, background: T.warnSoft }}>{gcAbiertos} abierto{gcAbiertos === 1 ? "" : "s"}</span>}
                   </button>
                 </div>
               </>

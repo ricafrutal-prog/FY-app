@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch, getUsername } from "./auth";
-import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe } from "./tesoreriaUtil";
+import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, camposLigados, esLigado } from "./tesoreriaUtil";
 
 // Configuración de cuenta › Tesorería: editar o eliminar lo que se capturó en Tesorería
 // (y corregir el saldo inicial). Solo el nivel alto (administradores).
 const C = { ink: "#16161B", muted: "#8C8C97", line: "#E6E3DB", paper: "#F1F3F2", brand: "#0F6E66", bad: "#D6453F", ok: "#2E9E5B" };
 const campo = { padding: "7px 8px", borderRadius: 8, border: `1px solid ${C.line}`, fontSize: 12.5, fontFamily: "inherit", background: "#fff", boxSizing: "border-box", width: "100%", minWidth: 0 };
 const dinero = (n) => `${n < 0 ? "-" : ""}$${Math.abs(Number(n) || 0).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const COLS = "70px 1fr 1fr 1fr 1.2fr 2.2fr 110px 110px 26px";
+const COLS = "70px repeat(3, minmax(0, 1fr)) minmax(0, 1.2fr) minmax(0, 2.2fr) 110px 110px 26px";
 const ORDEN = ["folio", "categoria", "subcategoria", "detalle", "nombre", "concepto", "ingreso", "egreso"];
 const ROTULOS = { folio: "Folio", categoria: "Categoría", subcategoria: "Subcategoría", detalle: "Detalle", nombre: "Nombre", concepto: "Concepto", ingreso: "Ingreso", egreso: "Egreso" };
 const dosPalabras = (t) => { const p = t.split(/\s+/); return p.length > 2 ? p.slice(0, 2).join(" ") : t; };
@@ -100,7 +100,7 @@ export default function TesoreriaAdmin() {
       const doc = {
         ...editando,
         encargado: editando.encargado.trim(),
-        movimientos: editando.movimientos.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...(m.entregaId != null ? { entregaId: m.entregaId, entregaFolio: m.entregaFolio, montoEntrega: m.montoEntrega } : {}) })),
+        movimientos: editando.movimientos.map((m) => ({ folio: String(m.folio).trim(), categoria: m.categoria.trim(), subcategoria: m.subcategoria.trim(), detalle: m.detalle.trim(), nombre: m.nombre.trim(), concepto: m.concepto.trim(), ingreso: tesNum(m.ingreso), egreso: tesNum(m.egreso), ...camposLigados(m) })),
         editadoPor: getUsername(), editadoEn: new Date().toISOString(),
       };
       await llamar("PUT", `/api/collections/tesoreria_capturas/${doc.id}`, doc);

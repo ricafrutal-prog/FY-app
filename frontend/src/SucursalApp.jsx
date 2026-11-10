@@ -16,6 +16,7 @@ import { usePersistedCollection, usePersistedList, agregarValorLista } from "./h
 import { getSucursal, clearSession, cerrarSesionServidor, apiFetch } from "./auth";
 import CuentaBarra from "./CuentaBarra.jsx";
 import ConfigCuentaContenido from "./ConfigCuenta.jsx";
+import Checador from "./Checador.jsx";
 import { limpiarPrefsLocal } from "./preferences";
 import { ESTATUS, ESTATUS_CON_HORAS, ESTATUS_COLOR, idAsistencia, fechaLocalISO, horasEntre, horasDeRegistro, fmtHoras } from "./asistenciaUtil";
 
@@ -1176,6 +1177,15 @@ const tdAs = { padding: "7px 12px", borderBottom: `1px solid ${T.lineSoft}` };
 
 function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
   const [verFecha, setVerFecha] = useState(null);
+  const [verChecador, setVerChecador] = useState(false);
+  if (verChecador) {
+    return (
+      <div>
+        <button onClick={() => setVerChecador(false)} style={{ background: "none", border: "none", color: T.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, marginBottom: 14 }}><ChevronLeft size={14} /> Registro asistencia</button>
+        <Checador />
+      </div>
+    );
+  }
   const ordenadas = [...items].sort((a, b) => b.fecha.localeCompare(a.fecha));
   const hayEmpleados = empleados.length > 0;
 
@@ -1195,6 +1205,8 @@ function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4, flexWrap: "wrap", gap: 8 }}>
         <h1 style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", margin: 0, color: T.ink }}>Registro asistencia</h1>
         {!verFecha && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => setVerChecador(true)} style={{ border: `1px solid ${T.line}`, background: "#fff", color: T.ink, fontSize: 12, fontWeight: 600, padding: "7px 14px", borderRadius: 8, cursor: "pointer", fontFamily: "inherit" }}>Checador del personal</button>
           <button
             onClick={onNuevo}
             disabled={!hayEmpleados}
@@ -1202,6 +1214,7 @@ function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
           >
             <Plus size={15} color="#fff" /> Nueva captura
           </button>
+          </div>
         )}
       </div>
       {!verFecha && <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 18 }}>Asistencia diaria del personal de la sucursal</div>}
@@ -1325,6 +1338,27 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
   const ordenados = [...empleados].sort((a, b) => (a.nombre || "").localeCompare(b.nombre || "", "es"));
 
   const yaCapturada = items.some((d) => d.fecha === fecha);
+  // Las horas que el personal checó desde su celular llenan solas la captura (solo donde aún no hay nada).
+  const [delChecador, setDelChecador] = useState({}); // nombre -> true (tiene hora de checador)
+  useEffect(() => {
+    let vivo = true;
+    apiFetch(`/api/checador/checadas?fecha=${fecha}`).then((r) => r.json()).then((lista) => {
+      if (!vivo || !Array.isArray(lista)) return;
+      const marca = {};
+      setValores((prev) => {
+        const sig = { ...prev };
+        lista.forEach((c) => {
+          const p = sig[c.empleado] || {};
+          if (p.manual || p.entrada || p.salida) return;
+          sig[c.empleado] = { entrada: "", salida: "", manual: "", ...p, entrada: c.entrada || "", salida: c.salida || "" };
+          marca[c.empleado] = true;
+        });
+        return sig;
+      });
+      setDelChecador(marca);
+    }).catch(() => {});
+    return () => { vivo = false; };
+  }, [fecha]);
   const poner = (nombre, cambios) => setValores((prev) => ({ ...prev, [nombre]: { entrada: "", salida: "", manual: "", ...(prev[nombre] || {}), ...cambios } }));
   const [auto, setAuto] = useState({}); // Asistió/Retardo calculado por el servidor para la revisión
 
@@ -1422,6 +1456,7 @@ function AsistenciaCaptura({ sucursal, items, setItems, empleados, onVolver }) {
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{e.nombre}</div>
                 {e.puesto && <div style={{ fontSize: 11, color: T.muted }}>{e.puesto}</div>}
+                {delChecador[e.nombre] && <div style={{ fontSize: 10.5, color: T.brand, fontWeight: 700 }}>Horas del checador</div>}
               </div>
               <select
                 value={v.manual || ""}

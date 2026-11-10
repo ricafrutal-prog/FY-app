@@ -25,6 +25,7 @@ function permitidoSoloNominas(req) {
   if (p === "/api/collections/nominas_semanas" || p.startsWith("/api/collections/nominas_semanas/")) return true;
   if (req.method === "GET" && p === "/api/lists/empleados_asistencia") return true; // la nómina parte del personal dado de alta
   if (p === "/api/notas" || p.startsWith("/api/notas/")) return true; // Pendientes
+  if (p === "/api/procesos" || p.startsWith("/api/procesos/")) return true; // Procesos
   if (p === "/api/recordatorios" || (p.startsWith("/api/recordatorios/") && p !== "/api/recordatorios/personas")) return true;
   return false;
 }

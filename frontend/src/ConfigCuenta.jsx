@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { Truck, UserPlus, ClipboardList, Landmark } from "lucide-react";
+import { Truck, UserPlus, ClipboardList, Landmark, ListTree, Smartphone } from "lucide-react";
+import Checador from "./Checador.jsx";
 import { getUsername, getRole } from "./auth";
 import RutaCortesModal from "./RutaCortesModal.jsx";
 import AsistenciaAdmin from "./AsistenciaAdmin.jsx";
 import TesoreriaAdmin from "./TesoreriaAdmin.jsx";
+import CategoriasTesoreria from "./CategoriasTesoreria.jsx";
 
 // Pantalla "Configuración de cuenta" (se abre desde el menú de Cuenta). Para todos los
 // usuarios; dos columnas: en la primera van las opciones que le tocan a cada quien.
@@ -21,8 +23,10 @@ export function opcionesConfig() {
   if (getRole() === "rrhh" || DUENOS.has(u)) {
     out.push({ key: "horarios", titulo: "Alta de personal", desc: "Dar de alta personal (de sucursal o fuera de ella), con su puesto, horario y sueldo", Icono: UserPlus });
     out.push({ key: "asistencia", titulo: "Registro de asistencia", desc: "Editar o eliminar lo que capturaron las sucursales", Icono: ClipboardList });
+    out.push({ key: "checador", titulo: "Checador en el celular", desc: "Red y ubicación de cada sucursal, y el celular de cada empleado", Icono: Smartphone });
   }
   if (DUENOS.has(u)) out.push({ key: "tesoreria", titulo: "Tesorería", desc: "Responsables de la captura, saldo inicial, y editar o eliminar capturas", Icono: Landmark });
+  if (RUTA_CORTES_USUARIOS.has(u)) out.push({ key: "categorias", titulo: "Categorías de Tesorería", desc: "Opciones de Categoría, Subcategoría, Detalle y Nombre para capturar", Icono: ListTree });
   return out;
 }
 
@@ -32,7 +36,25 @@ export default function ConfigCuentaContenido({ onAbrirHorarios, extra = null })
   const [verRuta, setVerRuta] = useState(false);
   const [verAsistencia, setVerAsistencia] = useState(false);
   const [verTesoreria, setVerTesoreria] = useState(false);
-  const abrir = (k) => { if (k === "ruta") setVerRuta(true); else if (k === "horarios") onAbrirHorarios && onAbrirHorarios(); else if (k === "asistencia") setVerAsistencia(true); else if (k === "tesoreria") setVerTesoreria(true); };
+  const [verCategorias, setVerCategorias] = useState(false);
+  const [verChecador, setVerChecador] = useState(false);
+  const abrir = (k) => { if (k === "checador") setVerChecador(true); else if (k === "ruta") setVerRuta(true); else if (k === "horarios") onAbrirHorarios && onAbrirHorarios(); else if (k === "asistencia") setVerAsistencia(true); else if (k === "tesoreria") setVerTesoreria(true); else if (k === "categorias") setVerCategorias(true); };
+  if (verChecador) {
+    return (
+      <div>
+        <button onClick={() => setVerChecador(false)} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 12 }}>‹ Configuración de cuenta</button>
+        <Checador />
+      </div>
+    );
+  }
+  if (verCategorias) {
+    return (
+      <div>
+        <button onClick={() => setVerCategorias(false)} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, marginBottom: 12 }}>‹ Configuración de cuenta</button>
+        <CategoriasTesoreria />
+      </div>
+    );
+  }
   if (verTesoreria) {
     return (
       <div>

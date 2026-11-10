@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Plus, Bell, Trash2, ChevronLeft, BellOff, Check } from "lucide-react";
-import { apiFetch } from "./auth";
+import { apiFetch, getUsername } from "./auth";
+const bonito = (u) => String(u || "").replace(/_/g, " ");
 
 // Pendientes: notas personales en hilos. Cada hilo tiene un título y mensajes con fecha; cualquier
 // mensaje se puede dejar como recordatorio diario (todos los días o solo algunos). Cada persona de
@@ -64,7 +65,13 @@ export default function Pendientes() {
       if (r.ok && Array.isArray(d)) setHilos(d); else setError("No se pudieron cargar tus pendientes");
     } catch { setError("No se pudieron cargar tus pendientes"); }
   }, []);
-  useEffect(() => { cargar(); }, [cargar]);
+  const [personas, setPersonas] = useState([]);
+  useEffect(() => {
+    cargar();
+    apiFetch("/api/notas/personas").then((r) => r.json()).then((d) => setPersonas(Array.isArray(d) ? d : [])).catch(() => {});
+    const t = setInterval(cargar, 15000); // quien asignó ve las actualizaciones de la otra persona
+    return () => clearInterval(t);
+  }, [cargar]);
 
   const llamar = async (url, metodo, cuerpo) => {
     setError(""); setGuardando(true);
@@ -83,7 +90,7 @@ export default function Pendientes() {
   if (hilo) {
     return (
       <VistaHilo
-        hilo={hilo} error={error} guardando={guardando}
+        hilo={hilo} error={error} guardando={guardando} soloLectura={hilo.owner !== getUsername()}
         onVolver={() => { setAbierto(null); setError(""); }}
         onAgregar={async (texto, recordatorio) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (h) { reemplazar(h); return true; } return false; }}
         onTitulo={async (titulo) => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { titulo }); if (h) reemplazar(h); }}
@@ -106,9 +113,9 @@ export default function Pendientes() {
       {error && <div style={{ color: C.bad, fontSize: 12.5, marginBottom: 10 }}>{error}</div>}
       {nuevo && (
         <NuevoHilo
-          guardando={guardando}
+          guardando={guardando} personas={personas}
           onCancelar={() => setNuevo(false)}
-          onGuardar={async (texto, titulo, recordatorio) => { const h = await llamar("/api/notas", "POST", { texto, titulo, recordatorio }); if (h) { reemplazar(h); setNuevo(false); setAbierto(h.id); } }}
+          onGuardar={async (texto, titulo, recordatorio, para) => { const h = await llamar("/api/notas", "POST", { texto, titulo, recordatorio, para }); if (h) { reemplazar(h); setNuevo(false); setAbierto(h.id); } }}
         />
       )}
       {ordenados.length === 0 && !nuevo && <div style={{ background: "#fff", border: `1px dashed ${C.line}`, borderRadius: 12, padding: 22, fontSize: 13, color: C.muted, textAlign: "center" }}>Todavía no tienes pendientes. Usa "Nuevo pendiente" para crear el primero.</div>}
@@ -119,7 +126,11 @@ export default function Pendientes() {
             <button key={h.id} onClick={() => { setAbierto(h.id); setError(""); }} style={{ textAlign: "left", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 18px", cursor: "pointer", fontFamily: "inherit", display: "block", width: "100%" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{tituloDe(h)}</div>
-                {h.recordatorio && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: C.brand, background: C.brandSoft, borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}><Bell size={11} /> Recordatorio {textoDias(h.recordatorio.dias)}</span>}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {h.owner !== getUsername() && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.warn, background: "#FBF1DC", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}>Enviado a {bonito(h.owner)}</span>}
+                  {h.creador && h.owner === getUsername() && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.warn, background: "#FBF1DC", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}>Asignado por {bonito(h.creador)}</span>}
+                  {h.recordatorio && h.owner === getUsername() && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: C.brand, background: C.brandSoft, borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}><Bell size={11} /> Recordatorio {textoDias(h.recordatorio.dias)}</span>}
+                </div>
               </div>
               <div style={{ fontSize: 12.5, color: C.muted, marginTop: 5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ultimo?.texto}</div>
               <div style={{ fontSize: 11, color: C.muted, marginTop: 6 }}>{h.mensajes.length} comentario{h.mensajes.length === 1 ? "" : "s"}{h.mensajes.some((m) => m.hecho) ? ` (${h.mensajes.filter((m) => m.hecho).length} hecho${h.mensajes.filter((m) => m.hecho).length === 1 ? "" : "s"})` : ""} · última actualización {fechaHora(h.actualizadoEn)}</div>
@@ -131,25 +142,36 @@ export default function Pendientes() {
   );
 }
 
-function NuevoHilo({ onGuardar, onCancelar, guardando }) {
+function NuevoHilo({ onGuardar, onCancelar, guardando, personas = [] }) {
   const [texto, setTexto] = useState("");
   const [titulo, setTitulo] = useState("");
   const [rec, setRec] = useState(null);
+  const [para, setPara] = useState("");
   return (
     <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 18, display: "grid", gap: 12 }}>
       <div style={{ fontWeight: 700, fontSize: 14 }}>Nuevo pendiente</div>
       <input spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={titulo} onChange={(e) => setTitulo(e.target.value)} maxLength={120} placeholder="Título (opcional; después lo puedes poner o cambiar)" style={campo} />
       <textarea spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" autoFocus value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={2000} placeholder="Escribe tu pendiente" style={{ ...campo, resize: "vertical" }} />
+      {personas.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12.5, color: C.muted }}>Para</span>
+          <select value={para} onChange={(e) => setPara(e.target.value)} style={{ ...campo, width: 240, padding: "8px 10px" }}>
+            <option value="">Yo (solo yo lo veo)</option>
+            {personas.map((p) => <option key={p.username} value={p.username}>{bonito(p.username)}</option>)}
+          </select>
+          {para && <span style={{ fontSize: 11.5, color: C.muted }}>A {bonito(para)} le aparece en sus Pendientes y tú ves cómo lo va actualizando.</span>}
+        </div>
+      )}
       <OpcionRecordatorio valor={rec} onChange={setRec} />
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button onClick={onCancelar} style={boton("#fff", C.ink, `1px solid ${C.line}`)}>Cancelar</button>
-        <button onClick={() => texto.trim() && onGuardar(texto, titulo, rec)} disabled={!texto.trim() || guardando} style={{ ...boton(C.brand), opacity: texto.trim() && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Guardar"}</button>
+        <button onClick={() => texto.trim() && onGuardar(texto, titulo, rec, para)} disabled={!texto.trim() || guardando} style={{ ...boton(C.brand), opacity: texto.trim() && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Guardar"}</button>
       </div>
     </div>
   );
 }
 
-function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
+function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAgregar, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
   const [texto, setTexto] = useState("");
   const [rec, setRec] = useState(null);
   const [titulo, setTitulo] = useState(hilo.titulo || "");
@@ -159,12 +181,14 @@ function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHe
     <div>
       <button onClick={onVolver} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, marginBottom: 12 }}><ChevronLeft size={14} /> Pendientes</button>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-        <input spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={titulo} onChange={(e) => setTitulo(e.target.value)} onBlur={() => titulo.trim() !== (hilo.titulo || "") && onTitulo(titulo)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={120} placeholder={tituloDe(hilo)} style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, fontWeight: 600, border: "none", borderBottom: `1px dashed ${C.line}`, outline: "none", background: "transparent", color: C.ink, flex: 1, minWidth: 220, padding: "2px 0" }} />
+        <input readOnly={soloLectura} spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={titulo} onChange={(e) => setTitulo(e.target.value)} onBlur={() => titulo.trim() !== (hilo.titulo || "") && onTitulo(titulo)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={120} placeholder={tituloDe(hilo)} style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, fontWeight: 600, border: "none", borderBottom: `1px dashed ${C.line}`, outline: "none", background: "transparent", color: C.ink, flex: 1, minWidth: 220, padding: "2px 0" }} />
         <button onClick={onEliminar} title="Eliminar pendiente" style={{ ...boton("#fff", C.bad, `1px solid ${C.line}`), display: "inline-flex", alignItems: "center", gap: 5 }}><Trash2 size={14} /> Eliminar</button>
       </div>
-      <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 16 }}>Creado el {fechaHora(hilo.creadoEn)} · toca el título para ponerle o cambiarle el nombre.</div>
+      <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 16 }}>Creado el {fechaHora(hilo.creadoEn)}{soloLectura ? "" : " · toca el título para ponerle o cambiarle el nombre."}</div>
+      {soloLectura && <div style={{ background: "#FBF1DC", color: C.warn, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, marginBottom: 16 }}>Se lo mandaste a {bonito(hilo.owner)}. Aquí ves cómo lo va actualizando; él es quien agrega comentarios y lo marca como hecho.</div>}
+      {!soloLectura && hilo.creador && <div style={{ background: "#FBF1DC", color: C.warn, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, marginBottom: 16 }}>Te lo asignó {bonito(hilo.creador)}, y puede ver cómo lo vas actualizando.</div>}
 
-      {hilo.recordatorio && (
+      {hilo.recordatorio && !soloLectura && (
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap", background: C.brandSoft, border: `1px solid ${C.brand}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
           <div style={{ fontSize: 13, color: C.ink }}><Bell size={13} color={C.brand} style={{ verticalAlign: "-2px", marginRight: 6 }} /><strong>Recordatorio activo:</strong> “{hilo.recordatorio.texto}” — {textoDias(hilo.recordatorio.dias)}{hilo.recordatorio.hora ? ` a las ${hilo.recordatorio.hora}` : ""}.</div>
           <button onClick={onQuitarRec} style={{ ...boton("#fff", C.ink, `1px solid ${C.line}`), display: "inline-flex", alignItems: "center", gap: 5 }}><BellOff size={13} /> Quitar recordatorio</button>
@@ -174,25 +198,26 @@ function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHe
       <div style={{ display: "grid", gap: 10, marginBottom: 18 }}>
         {hilo.mensajes.map((m) => (
           <div key={m.id} style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "12px 16px", display: "flex", gap: 12, alignItems: "flex-start" }}>
-            <button onClick={() => onHecho(m.id, !m.hecho)} title={m.hecho ? "Quitar marca de hecho" : "Marcar como hecho"} aria-label={m.hecho ? "Quitar marca de hecho" : "Marcar como hecho"} style={{ width: 22, height: 22, borderRadius: 99, border: `2px solid ${m.hecho ? C.brand : C.muted}`, background: m.hecho ? C.brand : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
+            <button disabled={soloLectura} onClick={() => onHecho(m.id, !m.hecho)} title={m.hecho ? "Quitar marca de hecho" : "Marcar como hecho"} aria-label={m.hecho ? "Quitar marca de hecho" : "Marcar como hecho"} style={{ width: 22, height: 22, borderRadius: 99, border: `2px solid ${m.hecho ? C.brand : C.muted}`, background: m.hecho ? C.brand : "transparent", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
               {m.hecho && <Check size={13} color="#fff" strokeWidth={3.5} />}
             </button>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13.5, color: m.hecho ? C.muted : C.ink, whiteSpace: "pre-wrap", textDecoration: m.hecho ? "line-through" : "none" }}>{m.texto}</div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6, fontSize: 11, color: C.muted }}>
+                {m.autor && (hilo.creador || soloLectura) && <span style={{ fontWeight: 700, color: C.ink }}>{bonito(m.autor)}</span>}
                 <span>{fechaHora(m.fecha)}</span>
                 {m.hecho && m.hechoEn && <span style={{ color: C.brand, fontWeight: 700 }}>Hecho el {fechaHora(m.hechoEn)}</span>}
                 {m.recordatorio && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontWeight: 700, color: C.brand }}><Bell size={11} /> Recordatorio {textoDias(m.recordatorio.dias)}</span>}
               </div>
             </div>
-            {hilo.mensajes.length > 1 && (
+            {hilo.mensajes.length > 1 && !soloLectura && (
               <button onClick={() => onEliminarMensaje(m.id, m.texto)} title="Eliminar solo este comentario" aria-label="Eliminar solo este comentario" style={{ background: "none", border: "none", cursor: "pointer", padding: 4, lineHeight: 0, flexShrink: 0, opacity: 0.8 }}><Trash2 size={15} color={C.bad} /></button>
             )}
           </div>
         ))}
       </div>
 
-      <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, display: "grid", gap: 12 }}>
+      {!soloLectura && <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, display: "grid", gap: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>Agregar comentario</div>
         <textarea spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={2000} placeholder="Escribe cómo va este pendiente…" style={{ ...campo, resize: "vertical" }} />
         <OpcionRecordatorio valor={rec} onChange={setRec} />
@@ -200,7 +225,7 @@ function VistaHilo({ hilo, error, guardando, onVolver, onAgregar, onTitulo, onHe
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button onClick={agregar} disabled={!texto.trim() || guardando} style={{ ...boton(C.brand), opacity: texto.trim() && !guardando ? 1 : 0.5 }}>{guardando ? "Guardando…" : "Agregar"}</button>
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

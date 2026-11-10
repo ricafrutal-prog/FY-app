@@ -74,7 +74,7 @@ export default function Recordatorios() {
       if (getRole() !== "sucursal") {
         const rn = await apiFetch("/api/notas");
         const dn = await rn.json().catch(() => null);
-        if (rn.ok && Array.isArray(dn)) setNotas(dn.filter((h) => h.recordatorio && !h.mensajes.find((m) => m.id === h.recordatorio.mensajeId)?.hecho));
+        if (rn.ok && Array.isArray(dn)) setNotas(dn.filter((h) => h.owner === getUsername() && h.recordatorio &&!h.mensajes.find((m) => m.id === h.recordatorio.mensajeId)?.hecho));
       }
     } catch { /* sin conexión: se reintenta en el siguiente ciclo */ }
   }, []);

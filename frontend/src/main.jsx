@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.jsx";
 import Login from "./Login.jsx";
 import SucursalApp from "./SucursalApp.jsx";
+import Checar from "./Checar.jsx";
 import { getToken, getRole, clearSession, cerrarSesionServidor } from "./auth";
 import GuardiaInactividad, { descartarSesionSiInactiva, marcarActividad, limpiarActividad } from "./inactividad.jsx";
 import { getPrefsLocal, applyPrefs, loadPrefsDesdeServidor, limpiarPrefsLocal } from "./preferences";
@@ -48,4 +49,6 @@ function Root() {
   );
 }
 
-createRoot(document.getElementById("root")).render(<Root />);
+// /checar es la página pública del checador (sin iniciar sesión): el empleado se identifica con su celular.
+const esChecador = window.location.pathname.replace(/\/+$/, "") === "/checar";
+createRoot(document.getElementById("root")).render(esChecador ? <Checar /> : <Root />);

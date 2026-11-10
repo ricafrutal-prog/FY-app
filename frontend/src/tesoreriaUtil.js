@@ -28,8 +28,43 @@ export const soloDigitos = (txt) => String(txt).replace(/\D/g, "").slice(0, 12);
 // Una fila está completa si tiene folio, concepto y un monto (ingreso o egreso, no ambos).
 export const movimientoValido = (m) => {
   const ing = tesNum(m.ingreso), egr = tesNum(m.egreso);
-  return !!String(m.folio).trim() && !!String(m.concepto).trim() && (ing > 0) !== (egr > 0);
+  if (!String(m.folio).trim() || !String(m.concepto).trim()) return false;
+  if (m.gcTipo === "cierre") return egr === 0; // el cierre de un gasto por comprobar puede ir en $0 (se gastó todo)
+  return (ing > 0) !== (egr > 0);
 };
+
+// Campos que ligan un renglón con una entrega de Cortes o con un gasto por comprobar (se conservan al guardar).
+export const camposLigados = (m) => ({
+  ...(m.entregaId != null ? { entregaId: m.entregaId, entregaFolio: m.entregaFolio, montoEntrega: m.montoEntrega } : {}),
+  ...(m.gcId != null ? { gcId: m.gcId, gcFolio: m.gcFolio, gcTipo: m.gcTipo, ...(m.gcTipo === "cierre" ? { gcComprobado: Number(m.gcComprobado) || 0 } : {}) } : {}),
+});
+export const esLigado = (m) => m.entregaId != null || m.gcId != null;
+
+// ---- Gastos por comprobar ----
+// Se entrega efectivo (renglón de egreso "GC-n", gcTipo "entrega"). Se cierra con un renglón gcTipo "cierre" que
+// trae lo devuelto en efectivo (ingreso, puede ser $0) y lo comprobado con papeles físicos (gcComprobado).
+// Así el efectivo solo se mueve una vez y no se inflan ingresos ni egresos con compras que ya salieron de caja.
+export const gastosPorComprobar = (capturas) => {
+  const mapa = new Map();
+  for (const c of [...capturas].sort(ordenCaptura)) {
+    for (const m of c.movimientos || []) {
+      if (m.gcId == null) continue;
+      const g = mapa.get(m.gcId) || { id: m.gcId, folio: m.gcFolio, entregado: 0, devuelto: 0, comprobado: 0, cerrado: false };
+      if (m.gcTipo === "cierre") { g.devuelto += tesNum(m.ingreso); g.comprobado += Number(m.gcComprobado) || 0; g.cerrado = true; g.fechaCierre = c.fecha; }
+      else { g.entregado += tesNum(m.egreso); g.fecha = c.fecha; g.nombre = m.nombre; g.concepto = m.concepto; g.folio = m.folio; } // el folio es el mismo de la numeración de Tesorería
+      mapa.set(m.gcId, g);
+    }
+  }
+  return [...mapa.values()].filter((g) => g.entregado > 0);
+};
+// Los renglones llevan folio, categoría, subcategoría y detalle como cualquier otro movimiento (se capturan a
+// mano); lo único fijo es la marca interna gcId/gcTipo que los liga como "gasto por comprobar".
+export const movimientoGastoPorComprobar = () => ({ ...movimientoVacio(), gcId: `gc-${Date.now()}`, gcTipo: "entrega" });
+export const movimientoCierreGC = (g, devuelto) => ({
+  ...movimientoVacio(), nombre: g.nombre || "",
+  concepto: `Cierre de gasto por comprobar (folio ${g.folio})`, ingreso: devuelto > 0 ? String(devuelto) : "", egreso: "",
+  gcId: g.id, gcFolio: g.folio, gcTipo: "cierre", gcComprobado: Math.round((g.entregado - devuelto) * 100) / 100,
+});
 
 export const totalesDe = (movs) => {
   const ingresos = Math.round(movs.reduce((s, m) => s + tesNum(m.ingreso) * 100, 0)) / 100;

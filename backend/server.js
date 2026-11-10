@@ -9,6 +9,7 @@ import { initDb, listCollection, upsertItem, deleteItem, getItem, getList, setLi
 import { signToken, requireAuth, requireAdmin, requireAdminOInventarios, SOLO_NOMINAS } from "./auth.js";
 import { odooLogin, odooExecuteKw, fechaLocalMx, sumarDiasISO } from "./odoo.js";
 import { ODOO_SUCURSAL_A_CONFIG } from "./odoo-sucursales.js";
+import { montarChecador } from "./checador.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -29,7 +30,7 @@ app.use((req, res, next) => {
   res.setHeader("X-Frame-Options", "DENY"); // nadie puede incrustar la plataforma en otra página
   res.setHeader("Referrer-Policy", "no-referrer");
   res.setHeader("Strict-Transport-Security", "max-age=15552000; includeSubDomains");
-  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(self), publickey-credentials-get=(self), publickey-credentials-create=(self)");
   if (req.path.startsWith("/api/")) res.setHeader("Cache-Control", "no-store");
   next();
 });
@@ -75,6 +76,7 @@ const COLLECTIONS = new Set([
   "incidencias_conteo",       // Control interno › Conteo de Cortes: incidencias por periodo y control
   "tesoreria_capturas",       // Tesorería: una captura por día con sus movimientos (folio, categoría, ingreso, egreso…)
   "tesoreria_saldo",          // Tesorería: saldo inicial (un solo documento, se pide la primera vez)
+  "tesoreria_arqueos",        // Tesorería: arqueos del efectivo físico contra el saldo del sistema
   "nominas_semanas",          // Nóminas: un documento por semana (viernes a jueves) con todos los empleados
 ]);
 // Nóminas: mismo acceso que Tesorería (nivel alto y medio). El nivel medio puede capturar y
@@ -86,8 +88,8 @@ const SUCURSAL_FUERA = "Fuera de sucursal"; // nombre que se usó antes; se sigu
 const AREAS_PERSONAL = { oficina: "Oficina", almacen: "Almacén", produccion: "Producción" };
 // Tesorería: la ven y capturan los niveles alto y medio (administradores y Jesús). Editar o
 // borrar lo ya capturado es solo del nivel alto (desde Configuración de cuenta).
-const TESORERIA_COLECCIONES = new Set(["tesoreria_capturas", "tesoreria_saldo"]);
-const LISTS = new Set(["encargados_tesoreria", "sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia", "ruta_cortes"]);
+const TESORERIA_COLECCIONES = new Set(["tesoreria_capturas", "tesoreria_saldo", "tesoreria_arqueos"]);
+const LISTS = new Set(["encargados_tesoreria", "categorias_tesoreria", "subcategorias_tesoreria", "detalles_tesoreria", "nombres_tesoreria", "nombresRecibeEfectivoAI","sucursalesAI", "nombresEntregaAI", "nombresRecibeAI", "terminacionesAI", "responsables_sucursal", "empleados_asistencia", "ruta_cortes"]);
 // Listas que un usuario "sucursal" puede LEER (nunca reemplazar/borrar toda
 // la lista — eso lo hace el admin desde Gestión). Por ejemplo el catálogo de
 // responsables que aparece como selector al capturar un corte.
@@ -791,19 +793,33 @@ async function hiloPropio(req, res) {
   if (!h || h.owner !== req.user.username) { res.status(404).json({ error: "No se encontró el pendiente" }); return null; }
   return h;
 }
+// Cada quien ve sus pendientes (owner) y los que él mandó a otra persona (creador): de esos solo lee las
+// actualizaciones. Lo que otra persona escribe en su propio perfil nunca se comparte.
 app.get("/api/notas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
   const todos = await listCollection(COLECCION_NOTAS);
-  res.json(todos.filter((h) => h.owner === req.user.username));
+  res.json(todos.filter((h) => h.owner === req.user.username || h.creador === req.user.username));
+}));
+app.get("/api/notas/personas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  if (SOLO_NOMINAS.has(req.user.username)) return res.json([]);
+  const usuarios = await listUsers();
+  res.json(usuarios.filter((u) => u.username !== req.user.username && u.role !== "sucursal").map((u) => ({ username: u.username, role: u.role })));
 }));
 app.post("/api/notas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
   const b = req.body || {};
   const texto = typeof b.texto === "string" ? b.texto.trim() : "";
   const titulo = typeof b.titulo === "string" ? b.titulo.trim().slice(0, 120) : "";
   if (!texto || texto.length > 2000) return res.status(400).json({ error: "Escribe el pendiente (máximo 2000 caracteres)" });
+  let owner = req.user.username, creador;
+  if (typeof b.para === "string" && b.para && b.para !== req.user.username) {
+    if (SOLO_NOMINAS.has(req.user.username)) return res.status(403).json({ error: "Solo puedes crear pendientes para ti" });
+    const u = await getUserByUsername(b.para);
+    if (!u || u.role === "sucursal") return res.status(400).json({ error: "Elige a la persona" });
+    owner = u.username; creador = req.user.username;
+  }
   const ahora = new Date().toISOString();
   const rec = b.recordatorio ? limpiarRecordatorio(b.recordatorio) : null;
-  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec };
-  const h = { id: randomUUID(), owner: req.user.username, titulo, mensajes: [m], recordatorio: rec ? { ...rec, texto, mensajeId: m.id, desde: ahora } : null, hechoFechas: [], creadoEn: ahora, actualizadoEn: ahora };
+  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec, autor: req.user.username };
+  const h = { id: randomUUID(), owner, ...(creador ? { creador } : {}), titulo, mensajes: [m], recordatorio: rec ? { ...rec, texto, mensajeId: m.id, desde: ahora } : null, hechoFechas: [], creadoEn: ahora, actualizadoEn: ahora };
   await upsertItem(COLECCION_NOTAS, h.id, h);
   res.status(201).json(h);
 }));
@@ -815,7 +831,7 @@ app.post("/api/notas/:id/mensajes", requireAuth, soloOficina, asyncRoute(async (
   if (h.mensajes.length >= 500) return res.status(400).json({ error: "Este hilo ya es muy largo" });
   const ahora = new Date().toISOString();
   const rec = b.recordatorio ? limpiarRecordatorio(b.recordatorio) : null;
-  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec };
+  const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec, autor: req.user.username };
   h.mensajes.push(m);
   // El recordatorio vigente del hilo es el del último mensaje que lo pidió; uno nuevo reemplaza al anterior.
   if (rec) { h.recordatorio = { ...rec, texto, mensajeId: m.id, desde: ahora }; h.hechoFechas = []; }
@@ -866,9 +882,76 @@ app.put("/api/notas/:id/hecho-hoy", requireAuth, soloOficina, asyncRoute(async (
   await upsertItem(COLECCION_NOTAS, h.id, h);
   res.json(h);
 }));
+// Lo borra su dueño o, si es un pendiente que él mandó, quien lo asignó.
 app.delete("/api/notas/:id", requireAuth, soloOficina, asyncRoute(async (req, res) => {
-  const h = await hiloPropio(req, res); if (!h) return;
+  const h = await getItem(COLECCION_NOTAS, req.params.id);
+  if (!h || (h.owner !== req.user.username && h.creador !== req.user.username)) return res.status(404).json({ error: "No se encontró el pendiente" });
   await deleteItem(COLECCION_NOTAS, h.id);
+  res.status(204).end();
+}));
+
+// ---- Procesos: lo que cada persona de oficina hace a diario o cada semana ----
+// Un proceso tiene título, descripción, los días de la semana en que toca (vacío = todos los días) y una
+// hora opcional. Lo puede crear la propia persona o asignárselo otra cuenta de oficina. El responsable
+// (owner) marca cada día como hecho; quien lo creó (creador) lo edita, lo borra y ve su cumplimiento.
+// Colección fuera de COLLECTIONS: solo se llega por estas rutas, que siempre filtran por quien pide.
+const COLECCION_PROCESOS = "procesos_tareas";
+const SOLO_PROPIOS_PROCESOS = (u) => SOLO_NOMINAS.has(u); // las cuentas de nivel bajo solo tienen procesos propios
+const limpiarDias = (d) => { const dias = Array.isArray(d) ? [...new Set(d.map(Number).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort() : []; return dias.length === 7 ? [] : dias; };
+app.get("/api/procesos", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const todos = await listCollection(COLECCION_PROCESOS);
+  res.json(todos.filter((p) => p.owner === req.user.username || p.creador === req.user.username));
+}));
+app.get("/api/procesos/personas", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  if (SOLO_PROPIOS_PROCESOS(req.user.username)) return res.json([]);
+  const usuarios = await listUsers();
+  res.json(usuarios.filter((u) => u.username !== req.user.username && u.role !== "sucursal").map((u) => ({ username: u.username, role: u.role })));
+}));
+app.post("/api/procesos", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const b = req.body || {};
+  const titulo = typeof b.titulo === "string" ? b.titulo.trim() : "";
+  const descripcion = typeof b.descripcion === "string" ? b.descripcion.trim() : "";
+  if (!titulo || titulo.length > 160) return res.status(400).json({ error: "Escribe el proceso (máximo 160 caracteres)" });
+  if (descripcion.length > 1000) return res.status(400).json({ error: "La descripción es demasiado larga" });
+  const hora = typeof b.hora === "string" && HORA_RE.test(b.hora) ? b.hora : "";
+  let owner = req.user.username;
+  if (typeof b.para === "string" && b.para && b.para !== req.user.username) {
+    if (SOLO_PROPIOS_PROCESOS(req.user.username)) return res.status(403).json({ error: "Solo puedes crear procesos para ti" });
+    const u = await getUserByUsername(b.para);
+    if (!u || u.role === "sucursal") return res.status(400).json({ error: "Elige a la persona" });
+    owner = u.username;
+  }
+  const item = { id: randomUUID(), titulo, descripcion, dias: limpiarDias(b.dias), hora, owner, creador: req.user.username, hechoFechas: [], creadoEn: new Date().toISOString() };
+  await upsertItem(COLECCION_PROCESOS, item.id, item);
+  res.status(201).json(item);
+}));
+app.put("/api/procesos/:id", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const p = await getItem(COLECCION_PROCESOS, req.params.id);
+  if (!p || p.creador !== req.user.username) return res.status(404).json({ error: "No se encontró el proceso" });
+  const b = req.body || {};
+  if (typeof b.titulo === "string") { const t = b.titulo.trim(); if (!t || t.length > 160) return res.status(400).json({ error: "Escribe el proceso (máximo 160 caracteres)" }); p.titulo = t; }
+  if (typeof b.descripcion === "string") { const d = b.descripcion.trim(); if (d.length > 1000) return res.status(400).json({ error: "La descripción es demasiado larga" }); p.descripcion = d; }
+  if (b.dias !== undefined) p.dias = limpiarDias(b.dias);
+  if (typeof b.hora === "string") p.hora = HORA_RE.test(b.hora) ? b.hora : "";
+  await upsertItem(COLECCION_PROCESOS, p.id, p);
+  res.json(p);
+}));
+// El responsable marca (o deshace) un día como hecho.
+app.put("/api/procesos/:id/hecho", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const p = await getItem(COLECCION_PROCESOS, req.params.id);
+  if (!p || p.owner !== req.user.username) return res.status(404).json({ error: "No se encontró el proceso" });
+  const { fecha, hecho } = req.body || {};
+  if (typeof fecha !== "string" || !FECHA_RE.test(fecha)) return res.status(400).json({ error: "Fecha inválida" });
+  const set = new Set(p.hechoFechas || []);
+  if (hecho) set.add(fecha); else set.delete(fecha);
+  p.hechoFechas = [...set].sort().slice(-120);
+  await upsertItem(COLECCION_PROCESOS, p.id, p);
+  res.json(p);
+}));
+app.delete("/api/procesos/:id", requireAuth, soloOficina, asyncRoute(async (req, res) => {
+  const p = await getItem(COLECCION_PROCESOS, req.params.id);
+  if (!p || p.creador !== req.user.username) return res.status(404).json({ error: "No se encontró el proceso" });
+  await deleteItem(COLECCION_PROCESOS, p.id);
   res.status(204).end();
 }));
 
@@ -948,6 +1031,9 @@ app.get("/api/odoo/consumo-ventas", requireAuth, requireAdminOInventarios, async
   });
   res.json(out);
 }));
+
+// ---- Checador en el celular (passkey + red de la sucursal + ubicación). Ver checador.js ----
+montarChecador(app, { requireAuth, getItem, upsertItem, deleteItem, listCollection, getList, asyncRoute, DUENOS });
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
