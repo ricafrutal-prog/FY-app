@@ -16,7 +16,7 @@ import { usePersistedCollection, usePersistedList, agregarValorLista } from "./h
 import { getSucursal, clearSession, cerrarSesionServidor, apiFetch } from "./auth";
 import CuentaBarra from "./CuentaBarra.jsx";
 import ConfigCuentaContenido from "./ConfigCuenta.jsx";
-import Checador from "./Checador.jsx";
+import ChecadorSucursal from "./ChecadorSucursal.jsx";
 import { limpiarPrefsLocal } from "./preferences";
 import { ESTATUS, ESTATUS_CON_HORAS, ESTATUS_COLOR, idAsistencia, fechaLocalISO, horasEntre, horasDeRegistro, fmtHoras } from "./asistenciaUtil";
 
@@ -1179,12 +1179,7 @@ function AsistenciaRegistro({ sucursal, items, empleados, onNuevo }) {
   const [verFecha, setVerFecha] = useState(null);
   const [verChecador, setVerChecador] = useState(false);
   if (verChecador) {
-    return (
-      <div>
-        <button onClick={() => setVerChecador(false)} style={{ background: "none", border: "none", color: T.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, marginBottom: 14 }}><ChevronLeft size={14} /> Registro asistencia</button>
-        <Checador />
-      </div>
-    );
+    return <ChecadorSucursal onVolver={() => setVerChecador(false)} />;
   }
   const ordenadas = [...items].sort((a, b) => b.fecha.localeCompare(a.fecha));
   const hayEmpleados = empleados.length > 0;

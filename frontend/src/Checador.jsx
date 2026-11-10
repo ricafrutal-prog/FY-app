@@ -26,7 +26,6 @@ export default function Checador() {
   const [sucursal, setSucursal] = useState("");
   const [datos, setDatos] = useState(null);
   const [error, setError] = useState("");
-  const [codigos, setCodigos] = useState({}); // nombre -> { codigo, expira }
   const [ipManual, setIpManual] = useState("");
   const [ocupado, setOcupado] = useState(false);
 
@@ -123,26 +122,24 @@ export default function Checador() {
           </div>
 
           <div style={tarjeta}>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Personal y su celular</div>
+            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Alta de huella o rostro del personal</div>
             {datos.empleados.length === 0 && <div style={{ fontSize: 12, color: C.muted }}>No hay personal dado de alta en esta sucursal.</div>}
-            {datos.empleados.map((e) => {
-              const c = codigos[e.nombre];
-              const vigente = c && c.expira > Date.now();
-              return (
-                <div key={e.nombre} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${C.paper}`, flexWrap: "wrap" }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600 }}>{e.nombre}</div>
-                    <div style={{ fontSize: 11.5, color: e.dispositivo ? C.ok : C.warn }}>{e.dispositivo ? `Celular registrado${e.ultimoUso ? ` · último uso ${hora(e.ultimoUso)}` : ""}` : "Sin celular registrado"}</div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    {vigente && <span style={{ fontSize: 18, fontWeight: 800, letterSpacing: "0.12em", background: C.brandSoft, color: C.brand, borderRadius: 8, padding: "4px 12px" }}>{c.codigo}</span>}
-                    <button disabled={ocupado} onClick={() => accion(async () => { const r = await llamar("POST", "/api/checador/codigo", { sucursal: sucNombre, nombre: e.nombre }); setCodigos((p) => ({ ...p, [e.nombre]: r })); })} style={btn(false)}>{e.dispositivo ? "Código para cambiar de celular" : "Generar código"}</button>
-                    {datos.esGestor && e.dispositivo && <button disabled={ocupado} onClick={() => window.confirm(`¿Quitar el celular de ${e.nombre}?`) && accion(() => llamar("DELETE", "/api/checador/dispositivo", { sucursal: sucNombre, nombre: e.nombre }))} style={btn(false, true)}>Quitar celular</button>}
+            {datos.empleados.map((e) => (
+              <div key={e.nombre} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: `1px solid ${C.paper}`, flexWrap: "wrap" }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>{e.nombre}</div>
+                  <div style={{ fontSize: 11.5, color: e.dispositivo ? C.ok : C.warn }}>
+                    {e.pendiente ? `Pendiente de aprobar${e.solicitadoEn ? ` · ${hora(e.solicitadoEn)}` : ""}` : e.dispositivo ? `Huella o rostro registrado${e.ultimoUso ? ` · último uso ${hora(e.ultimoUso)}` : ""}` : "Pendiente de registrar"}
                   </div>
                 </div>
-              );
-            })}
-            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>El código dura 15 minutos y sirve una sola vez. El empleado abre la liga, elige "Registrar mi celular" y escribe el código.</div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {e.pendiente && <button disabled={ocupado} onClick={() => window.confirm(`Aprueba solo si ${e.nombre} está contigo ahora y es quien pidió el registro. ¿Aprobar?`) && accion(() => llamar("POST", "/api/checador/aprobar", { sucursal: sucNombre, nombre: e.nombre, aprobar: true }))} style={btn(true)}>Aprobar</button>}
+                  {e.pendiente && <button disabled={ocupado} onClick={() => accion(() => llamar("POST", "/api/checador/aprobar", { sucursal: sucNombre, nombre: e.nombre, aprobar: false }))} style={btn(false, true)}>Rechazar</button>}
+                  {datos.esGestor && e.dispositivo && <button disabled={ocupado} onClick={() => window.confirm(`¿Quitar el registro de huella o rostro de ${e.nombre}? Tendrá que registrarlo de nuevo desde la sucursal.`) && accion(() => llamar("DELETE", "/api/checador/dispositivo", { sucursal: sucNombre, nombre: e.nombre }))} style={btn(false, true)}>Quitar registro</button>}
+                </div>
+              </div>
+            ))}
+            <div style={{ fontSize: 11.5, color: C.muted, marginTop: 8 }}>El registro se hace desde el perfil de la sucursal, en "Checador del personal": el celular pide la huella o el rostro de cada persona. Aquí solo ves quién ya está dado de alta.</div>
           </div>
         </>
       )}
