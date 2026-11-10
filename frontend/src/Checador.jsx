@@ -91,6 +91,7 @@ export default function Checador() {
               <button disabled={ocupado} onClick={() => accion(() => llamar("POST", "/api/checador/red", { sucursal: sucNombre }))} style={btn(true)}>Registrar la red desde la que estoy entrando</button>
               <span style={{ fontSize: 11.5, color: C.muted }}>Tu red actual: <code>{datos.miRed || "—"}</code></span>
             </div>
+            {datos.esGestor && datos.cabeceras && <div style={{ fontSize: 10.5, color: C.muted, marginTop: 6 }}>Diagnóstico: X-Forwarded-For = {datos.cabeceras.xff || "—"} · CF = {datos.cabeceras.cf || "—"} · conexión = {datos.cabeceras.ip || "—"}</div>}
             <div style={{ fontSize: 11.5, color: C.muted, marginTop: 6 }}>Hazlo estando en el Wi-Fi de la sucursal.{datos.esGestor ? "" : " Un administrador debe aprobarla."} Si el internet de la sucursal cambia de dirección, hay que registrarla otra vez.</div>
             {datos.esGestor && (
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>

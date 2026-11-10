@@ -35,6 +35,23 @@ export function ipClave(ipRaw) {
   return "";
 }
 
+// Detrás del proxy de Render, req.ip suele ser una dirección interna (10.x). La IP real del cliente viene
+// en cabeceras: primero las que pone Cloudflare, y si no, la primera dirección pública de X-Forwarded-For.
+const esPrivada = (ip) => {
+  const v = String(ip || "").replace(/^::ffff:/, "");
+  if (net.isIPv4(v)) return /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.)/.test(v);
+  const l = v.toLowerCase();
+  return l === "::1" || l.startsWith("fe80") || l.startsWith("fc") || l.startsWith("fd");
+};
+export function ipCliente(req) {
+  const h = req.headers || {};
+  const uno = (x) => String(Array.isArray(x) ? x[0] : x || "").split(",")[0].trim();
+  for (const c of [uno(h["cf-connecting-ip"]), uno(h["true-client-ip"])]) if (c && (net.isIP(c) && !esPrivada(c))) return c;
+  const cadena = String(h["x-forwarded-for"] || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const publica = cadena.find((s) => net.isIP(s) && !esPrivada(s));
+  return publica || req.ip || "";
+}
+
 export function distanciaM(lat1, lng1, lat2, lng2) {
   const R = 6371000, rad = (d) => (d * Math.PI) / 180;
   const dLat = rad(lat2 - lat1), dLng = rad(lng2 - lng1);
@@ -86,7 +103,7 @@ export function verificarAfirmacion({ clientDataJSON, authenticatorData, signatu
 // ---- Límite de intentos sencillo para las rutas públicas (por IP) ----
 const intentos = new Map();
 function limitar(req, res, max = 40, ventanaMs = 10 * 60 * 1000) {
-  const k = String(req.ip), ahora = Date.now();
+  const k = String(ipCliente(req)), ahora = Date.now();
   const r = intentos.get(k);
   if (!r || ahora - r.t > ventanaMs) { intentos.set(k, { n: 1, t: ahora }); return true; }
   r.n += 1;
@@ -137,7 +154,7 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
     const emps = (await getList("empleados_asistencia")) || [];
     const disp = (await listCollection("checador_dispositivos")).filter((d) => d.sucursal === sucursal);
     res.json({
-      sucursal, config: cfg, miRed: ipClave(req.ip), esGestor: esGestor(req.user),
+      sucursal, config: cfg, miRed: ipClave(ipCliente(req)), esGestor: esGestor(req.user), cabeceras: esGestor(req.user) ? { xff: req.headers["x-forwarded-for"] || null, cf: req.headers["cf-connecting-ip"] || null, tc: req.headers["true-client-ip"] || null, ip: req.ip } : undefined,
       empleados: (Array.isArray(emps) ? emps : []).filter((e) => e && e.sucursal === sucursal && !e.fechaBaja).map((e) => {
         const d = disp.find((x) => x.empleado === e.nombre);
         return { nombre: e.nombre, puesto: e.puesto || "", dispositivo: !!d, ultimoUso: d?.ultimoUso || null };
@@ -153,7 +170,7 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
     const manual = typeof (req.body || {}).ip === "string" && (req.body || {}).ip.trim() ? ipClave(req.body.ip) : "";
     if ((req.body || {}).ip && !manual) return res.status(400).json({ error: "Esa dirección IP no es válida" });
     if (manual && !esGestor(req.user)) return res.status(403).json({ error: "No tienes permiso para esto" });
-    const clave = manual || ipClave(req.ip);
+    const clave = manual || ipClave(ipCliente(req));
     if (!clave) return res.status(400).json({ error: "No se pudo leer la red actual" });
     const cfg = await configDe(sucursal);
     if (!cfg.ips.some((x) => x.clave === clave)) cfg.ips.push({ clave, aprobada: esGestor(req.user), agregadaPor: req.user.username, fecha: new Date().toISOString() });
@@ -260,7 +277,7 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
   // 2) Checar. Antes de pedir la huella se revisa que la red sea de alguna sucursal.
   app.post("/api/checador/checar/opciones", asyncRoute(async (req, res) => {
     if (!limitar(req, res, 60)) return;
-    const clave = ipClave(req.ip);
+    const clave = ipClave(ipCliente(req));
     const configs = await listCollection("checador_config");
     if (!configs.some((c) => redesAprobadas(c).includes(clave))) return res.status(403).json({ error: "Conéctate al Wi-Fi de tu sucursal para checar.", red: clave });
     const { id, challenge } = nuevoReto({ tipo: "checar" });
@@ -277,7 +294,7 @@ export function montarChecador(app, { requireAuth, getItem, upsertItem, deleteIt
     catch (e) { return res.status(400).json({ error: e.message }); }
 
     const cfg = await configDe(disp.sucursal);
-    const clave = ipClave(req.ip);
+    const clave = ipClave(ipCliente(req));
     if (!redesAprobadas(cfg).length) return res.status(403).json({ error: "Tu sucursal todavía no tiene su red registrada." });
     if (!redesAprobadas(cfg).includes(clave)) return res.status(403).json({ error: `Conéctate al Wi-Fi de ${disp.sucursal} para checar.` });
     let distancia = null;
