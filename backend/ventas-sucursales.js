@@ -6,9 +6,10 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIPOS = new Set(["propias", "franquicias"]);
 const COL = "ventas_sucursales";
 
-export function montarVentasSucursales(app, { requireAuth, getItem, upsertItem, listCollection, asyncRoute }) {
+export function montarVentasSucursales(app, { requireAuth, getItem, upsertItem, listCollection, asyncRoute, usuariosPermitidos }) {
+  // Solo cuentas administradoras de nivel alto y medio (las de la lista que manda el servidor).
   const soloAdmin = (req, res, next) => {
-    if (req.user.role !== "admin") return res.status(403).json({ error: "No tienes permiso para esto" });
+    if (req.user.role !== "admin" || !usuariosPermitidos.has(req.user.username)) return res.status(403).json({ error: "No tienes permiso para esto" });
     next();
   };
 

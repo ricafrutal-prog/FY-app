@@ -1035,7 +1035,7 @@ app.get("/api/odoo/consumo-ventas", requireAuth, requireAdminOInventarios, async
 
 // ---- Checador en el celular (passkey + red de la sucursal + ubicación). Ver checador.js ----
 montarChecador(app, { requireAuth, getItem, upsertItem, deleteItem, listCollection, getList, asyncRoute, DUENOS });
-montarVentasSucursales(app, { requireAuth, getItem, upsertItem, listCollection, asyncRoute });
+montarVentasSucursales(app, { requireAuth, getItem, upsertItem, listCollection, asyncRoute, usuariosPermitidos: new Set([...DUENOS, "jesus_segura"]) });
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 

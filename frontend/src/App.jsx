@@ -517,7 +517,7 @@ const AREAS = [
 /* departamentos de la plataforma (barra lateral) — solo Mantenimiento está desarrollado */
 const DEPTOS = [
   { key: "inicio", nombre: "Inicio", iconName: "LayoutDashboard", activo: true, home: true },
-  { key: "ventas_sucursales", nombre: "Ventas de sucursales", iconName: "TrendingUp", activo: true },
+  { key: "ventas_sucursales", nombre: "Ventas de sucursales", iconName: "TrendingUp", activo: true, soloUsuarios: true },
   { key: "franquicias", nombre: "Franquicias", iconName: "Handshake", activo: true, metricas: [["Franquicias activas", "34"], ["Solicitudes en proceso", "5"]] },
   { key: "sucursales_propias", nombre: "Sucursales Propias", iconName: "Store", activo: true, metricas: [["Sucursales", "12"], ["Auditorías críticas", "2"]] },
   { key: "aperturas", nombre: "Aperturas", iconName: "KeyRound", metricas: [["Sucursales en proceso", "3"], ["Próxima apertura", "12 jul"]] },
@@ -841,7 +841,7 @@ export default function App({ onCerrarSesion }) {
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
-      {depto === "ventas_sucursales" && <VentasSucursalesPantalla onCerrarSesion={onCerrarSesion} />}
+      {depto === "ventas_sucursales" && CONC_USUARIOS.has(getUsername()) && <VentasSucursalesPantalla onCerrarSesion={onCerrarSesion} />}
       {depto === "franquicias" && <Franquicias onCerrarSesion={onCerrarSesion} />}
       {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} onCerrarSesion={onCerrarSesion} />}
       {depto === "sucursales_propias" && <SucursalesPropias onCerrarSesion={onCerrarSesion} />}
