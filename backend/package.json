@@ -9,11 +9,13 @@
     "create-user": "node scripts/create-user.js",
     "list-users": "node scripts/list-users.js",
     "reset-password": "node scripts/reset-password.js",
+    "delete-user": "node scripts/delete-user.js",
     "cerrar-sesiones": "node scripts/cerrar-sesiones.js",
     "respaldo": "node scripts/respaldo.js",
     "restaurar": "node scripts/restaurar.js",
     "odoo-explore": "node scripts/odoo-explore.js",
-    "odoo-explore-productos": "node scripts/odoo-explore-productos.js"
+    "odoo-explore-productos": "node scripts/odoo-explore-productos.js",
+    "odoo-explore-empresas": "node scripts/odoo-explore-empresas.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

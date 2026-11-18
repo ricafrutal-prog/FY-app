@@ -11,6 +11,7 @@ import RangoFechas from "./RangoFechas.jsx";
 import Pendientes from "./Pendientes.jsx";
 import Procesos from "./Procesos.jsx";
 import ChecadorPropio from "./ChecadorPropio.jsx";
+import VentasSucursales from "./VentasSucursales.jsx";
 import MontoInput from "./MontoInput.jsx";
 import { jornadaNeta, DIAS_NOMINA, SUCURSAL_FUERA, AREAS_PERSONAL, esAreaFuera, ordenGrupo, CONCEPTOS_NOMINA, etiquetaSemana, idSemana, semanasRecientes, ultimaSemanaCompleta, calcularFila, filaDeEmpleado, claveFila, totalNomina, autocompletarHoras, DIAS_GETDAY_NOMINA, DIAS_SEMANA_LMD, DIAS_LABORALES_DEFECTO, diasLaborales, textoDias } from "./nominaUtil";
 import { SALDO_ID, movimientoVacio, tesNum, limpiarMonto, soloDigitos, movimientoValido, totalesDe, saldoActual, columnasMovimientos, saldoAntesDe, saldosCorridos, movimientoDeEntrega, diferenciaEntrega, diasDesde, etiquetaEntrega, camposLigados, esLigado, gastosPorComprobar, movimientoGastoPorComprobar, movimientoCierreGC } from "./tesoreriaUtil";
@@ -516,6 +517,7 @@ const AREAS = [
 /* departamentos de la plataforma (barra lateral) — solo Mantenimiento está desarrollado */
 const DEPTOS = [
   { key: "inicio", nombre: "Inicio", iconName: "LayoutDashboard", activo: true, home: true },
+  { key: "ventas_sucursales", nombre: "Ventas de sucursales", iconName: "TrendingUp", activo: true },
   { key: "franquicias", nombre: "Franquicias", iconName: "Handshake", activo: true, metricas: [["Franquicias activas", "34"], ["Solicitudes en proceso", "5"]] },
   { key: "sucursales_propias", nombre: "Sucursales Propias", iconName: "Store", activo: true, metricas: [["Sucursales", "12"], ["Auditorías críticas", "2"]] },
   { key: "aperturas", nombre: "Aperturas", iconName: "KeyRound", metricas: [["Sucursales en proceso", "3"], ["Próxima apertura", "12 jul"]] },
@@ -839,6 +841,7 @@ export default function App({ onCerrarSesion }) {
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
+      {depto === "ventas_sucursales" && <VentasSucursalesPantalla onCerrarSesion={onCerrarSesion} />}
       {depto === "franquicias" && <Franquicias onCerrarSesion={onCerrarSesion} />}
       {depto === "capital_humano" && <CapitalHumano cuadro={cuadro} setCuadro={setCuadro} onCerrarSesion={onCerrarSesion} />}
       {depto === "sucursales_propias" && <SucursalesPropias onCerrarSesion={onCerrarSesion} />}
@@ -850,7 +853,7 @@ export default function App({ onCerrarSesion }) {
       {depto === "control_interno" && CONC_USUARIOS.has(getUsername()) && <ControlInterno onCerrarSesion={onCerrarSesion} />}
       {depto === "tesoreria" && CONC_USUARIOS.has(getUsername()) && <Tesoreria onCerrarSesion={onCerrarSesion} />}
       {depto === "nominas" && puedeNominas() && <Nominas onCerrarSesion={onCerrarSesion} />}
-      {depto !== "nominas" && depto !== "tesoreria" && depto !== "control_interno" && depto !== "inicio" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
+      {depto !== "nominas" && depto !== "tesoreria" && depto !== "control_interno" && depto !== "inicio" && depto !== "ventas_sucursales" && depto !== "mantenimiento" && depto !== "franquicias" && depto !== "capital_humano" && depto !== "sucursales_propias" && depto !== "inventarios" && depto !== "video_vigilancia" && depto !== "remodelaciones" && depto !== "auditoria_interna" && depto !== "nomina_sucursales" && <DeptoPlaceholder depto={DEPTOS.find((d) => d.key === depto)} onCerrarSesion={onCerrarSesion} />}
       {depto === "mantenimiento" && (<>
 
       {/* barra superior */}
@@ -991,6 +994,21 @@ function PendientesPantalla({ onCerrarSesion }) {
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
       <main style={sx.main}><Pendientes /></main>
+    </div>
+  );
+}
+
+/* ---------------- VENTAS DE SUCURSALES (total por sucursal y día, propias y franquicias) ---------------- */
+function VentasSucursalesPantalla({ onCerrarSesion }) {
+  return (
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+      <header style={sx.header} className="noprint">
+        <div>
+          <div style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontWeight: 600, fontSize: 15 }}>Ventas de sucursales</div>
+        </div>
+        <AccountMenu onCerrarSesion={onCerrarSesion} />
+      </header>
+      <main style={sx.main}><VentasSucursales /></main>
     </div>
   );
 }

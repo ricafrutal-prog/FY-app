@@ -10,6 +10,7 @@ import { signToken, requireAuth, requireAdmin, requireAdminOInventarios, SOLO_NO
 import { odooLogin, odooExecuteKw, fechaLocalMx, sumarDiasISO } from "./odoo.js";
 import { ODOO_SUCURSAL_A_CONFIG } from "./odoo-sucursales.js";
 import { montarChecador } from "./checador.js";
+import { montarVentasSucursales } from "./ventas-sucursales.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1034,6 +1035,7 @@ app.get("/api/odoo/consumo-ventas", requireAuth, requireAdminOInventarios, async
 
 // ---- Checador en el celular (passkey + red de la sucursal + ubicación). Ver checador.js ----
 montarChecador(app, { requireAuth, getItem, upsertItem, deleteItem, listCollection, getList, asyncRoute, DUENOS });
+montarVentasSucursales(app, { requireAuth, getItem, upsertItem, listCollection, asyncRoute });
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 
