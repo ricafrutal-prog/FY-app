@@ -836,17 +836,16 @@ app.post("/api/notas/:id/mensajes", requireAuth, soloOficina, asyncRoute(async (
   const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec, autor: req.user.username };
   if (rec) {
     // Un comentario marcado como recordatorio diario NO se queda en el hilo: el hilo original termina (queda
-    // registrado, cerrado) y el comentario pasa a ser un recordatorio diario propio, en un pendiente nuevo.
-    const nuevo = {
-      id: randomUUID(), owner: h.owner, ...(h.creador ? { creador: h.creador } : {}), titulo: "", mensajes: [m],
-      recordatorio: { ...rec, texto, mensajeId: m.id, desde: ahora }, hechoFechas: [],
-      origenId: h.id, origenTitulo: h.titulo || (h.mensajes[0]?.texto || "").slice(0, 70), creadoEn: ahora, actualizadoEn: ahora,
+    // registrado, cerrado) y el comentario pasa a vivir en Procesos como tarea diaria (con los mismos días y hora).
+    const proceso = {
+      id: randomUUID(), titulo: texto.length > 160 ? `${texto.slice(0, 157)}…` : texto, descripcion: texto.length > 160 ? texto.slice(0, 1000) : "",
+      dias: limpiarDias(rec.dias), hora: rec.hora || "", owner: req.user.username, creador: req.user.username, hechoFechas: [], creadoEn: ahora, origenPendienteId: h.id,
     };
-    h.cerrado = true; h.cerradoEn = ahora; h.cerradoPor = req.user.username; h.derivadoId = nuevo.id;
+    h.cerrado = true; h.cerradoEn = ahora; h.cerradoPor = req.user.username; h.procesoId = proceso.id;
     h.recordatorio = null; h.hechoFechas = []; h.actualizadoEn = ahora;
-    await upsertItem(COLECCION_NOTAS, nuevo.id, nuevo);
+    await upsertItem(COLECCION_PROCESOS, proceso.id, proceso);
     await upsertItem(COLECCION_NOTAS, h.id, h);
-    return res.status(201).json({ derivado: true, hilo: h, nuevo });
+    return res.status(201).json({ derivado: true, hilo: h, proceso });
   }
   h.mensajes.push(m);
   h.actualizadoEn = ahora;

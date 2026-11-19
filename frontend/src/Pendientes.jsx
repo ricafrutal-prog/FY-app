@@ -51,7 +51,7 @@ function OpcionRecordatorio({ valor, onChange }) {
   );
 }
 
-export default function Pendientes() {
+export default function Pendientes({ onIrAProcesos }) {
   const [hilos, setHilos] = useState(null);
   const [abierto, setAbierto] = useState(null); // id del hilo abierto
   const [error, setError] = useState("");
@@ -92,8 +92,9 @@ export default function Pendientes() {
       <VistaHilo
         hilo={hilo} error={error} guardando={guardando} soloLectura={hilo.owner !== getUsername()}
         onVolver={() => { setAbierto(null); setError(""); }}
-        onAgregar={async (texto, recordatorio) => { const d = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (!d) return false; if (d.derivado) { reemplazar(d.nuevo); reemplazar(d.hilo); } else reemplazar(d); return true; }}
+        onAgregar={async (texto, recordatorio) => { const d = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (!d) return false; if (d.derivado) reemplazar(d.hilo); else reemplazar(d); return true; }}
         onAbrirOrigen={() => { setAbierto(hilo.derivadoId); setError(""); }}
+        onIrAProcesos={onIrAProcesos}
         onReabrir={async () => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { reabrir: true }); if (h) reemplazar(h); }}
         onTitulo={async (titulo) => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { titulo }); if (h) reemplazar(h); }}
         onHecho={async (mid, hecho) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes/${mid}`, "PUT", { hecho }); if (h) reemplazar(h); }}
@@ -174,7 +175,7 @@ function NuevoHilo({ onGuardar, onCancelar, guardando, personas = [] }) {
   );
 }
 
-function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAgregar, onAbrirOrigen, onReabrir, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
+function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAgregar, onAbrirOrigen, onIrAProcesos, onReabrir, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
   const [texto, setTexto] = useState("");
   const [rec, setRec] = useState(null);
   const [titulo, setTitulo] = useState(hilo.titulo || "");
@@ -191,8 +192,9 @@ function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAg
       {soloLectura && <div style={{ background: "#FBF1DC", color: C.warn, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, marginBottom: 16 }}>Se lo mandaste a {bonito(hilo.owner)}. Aquí ves cómo lo va actualizando; él es quien agrega comentarios y lo marca como hecho.</div>}
       {hilo.cerrado && (
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#F0EEE8", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: C.ink }}><Check size={13} color={C.brand} style={{ verticalAlign: "-2px", marginRight: 6 }} /><strong>Este pendiente terminó{hilo.cerradoEn ? ` el ${fechaHora(hilo.cerradoEn)}` : ""}.</strong>{hilo.derivadoId ? " Lo último que escribiste quedó como un recordatorio diario aparte." : ""}</div>
+          <div style={{ fontSize: 13, color: C.ink }}><Check size={13} color={C.brand} style={{ verticalAlign: "-2px", marginRight: 6 }} /><strong>Este pendiente terminó{hilo.cerradoEn ? ` el ${fechaHora(hilo.cerradoEn)}` : ""}.</strong>{hilo.procesoId ? " Lo último que escribiste quedó como un proceso diario, en Procesos." : hilo.derivadoId ? " Lo último que escribiste quedó como un recordatorio diario aparte." : ""}</div>
           {!soloLectura && <div style={{ display: "flex", gap: 8 }}>
+            {hilo.procesoId && onIrAProcesos && <button onClick={onIrAProcesos} style={{ ...boton("#fff", C.brand, `1px solid ${C.brand}`), display: "inline-flex", alignItems: "center", gap: 5 }}><Check size={13} /> Ver en Procesos</button>}
             {hilo.derivadoId && <button onClick={onAbrirOrigen} style={{ ...boton("#fff", C.brand, `1px solid ${C.brand}`), display: "inline-flex", alignItems: "center", gap: 5 }}><Bell size={13} /> Ver el recordatorio</button>}
             <button onClick={onReabrir} style={boton("#fff", C.ink, `1px solid ${C.line}`)}>Reabrir</button>
           </div>}

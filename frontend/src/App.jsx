@@ -837,7 +837,7 @@ export default function App({ onCerrarSesion }) {
     <div id="fy-app-shell" style={{ minHeight: "100%", display: "flex", color: T.ink, fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: CSS }} />
       <NavRail modo={modo} setModo={irAModo} soloGestion={restringidoInv} />
-      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} /> : modo === "procesos" ? <ProcesosPantalla onCerrarSesion={onCerrarSesion} /> : modo === "checador" ? <ChecadorPantalla onCerrarSesion={onCerrarSesion} /> : (<>
+      {verHorarios ? <HorariosPersonal onCerrarSesion={onCerrarSesion} onVolver={() => { setVerHorarios(false); setVerConfig(true); }} /> : verConfig ? <ConfigCuentaPantalla onCerrarSesion={onCerrarSesion} onVolver={() => setVerConfig(false)} onAbrirHorarios={() => { setVerConfig(false); setVerHorarios(true); }} /> : modo === "tareas" ? <Tareas onCerrarSesion={onCerrarSesion} /> : modo === "finanzas" ? <Finanzas cuadro={cuadro} inv={inv} invMes={invMes} onCerrarSesion={onCerrarSesion} /> : modo === "personal" && CONC_USUARIOS.has(getUsername()) ? <Personal onCerrarSesion={onCerrarSesion} /> : modo === "pendientes" ? <PendientesPantalla onCerrarSesion={onCerrarSesion} onIrAProcesos={() => irAModo("procesos")} /> : modo === "procesos" ? <ProcesosPantalla onCerrarSesion={onCerrarSesion} /> : modo === "checador" ? <ChecadorPantalla onCerrarSesion={onCerrarSesion} /> : (<>
       <Sidebar depto={depto} onPick={irADepto} permitidos={permisos ? permisos.deptos : null} />
       <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       {depto === "inicio" && <Inicio onEnter={(k) => irADepto(k)} mtto={mttoResumen} onCerrarSesion={onCerrarSesion} />}
@@ -983,7 +983,7 @@ function NavRail({ modo, setModo, soloGestion }) {
 }
 
 /* ---------------- PENDIENTES (notas personales en hilos, para todas las cuentas de oficina) ---------------- */
-function PendientesPantalla({ onCerrarSesion }) {
+function PendientesPantalla({ onCerrarSesion, onIrAProcesos }) {
   return (
     <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
       <header style={sx.header} className="noprint">
@@ -993,7 +993,7 @@ function PendientesPantalla({ onCerrarSesion }) {
         </div>
         <AccountMenu onCerrarSesion={onCerrarSesion} />
       </header>
-      <main style={sx.main}><Pendientes /></main>
+      <main style={sx.main}><Pendientes onIrAProcesos={onIrAProcesos} /></main>
     </div>
   );
 }
