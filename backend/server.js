@@ -830,12 +830,25 @@ app.post("/api/notas/:id/mensajes", requireAuth, soloOficina, asyncRoute(async (
   const texto = typeof b.texto === "string" ? b.texto.trim() : "";
   if (!texto || texto.length > 2000) return res.status(400).json({ error: "Escribe el comentario (máximo 2000 caracteres)" });
   if (h.mensajes.length >= 500) return res.status(400).json({ error: "Este hilo ya es muy largo" });
+  if (h.cerrado) return res.status(400).json({ error: "Este pendiente ya terminó. Reábrelo si quieres seguir agregándole comentarios." });
   const ahora = new Date().toISOString();
   const rec = b.recordatorio ? limpiarRecordatorio(b.recordatorio) : null;
   const m = { id: randomUUID(), texto, fecha: ahora, recordatorio: rec, autor: req.user.username };
+  if (rec) {
+    // Un comentario marcado como recordatorio diario NO se queda en el hilo: el hilo original termina (queda
+    // registrado, cerrado) y el comentario pasa a ser un recordatorio diario propio, en un pendiente nuevo.
+    const nuevo = {
+      id: randomUUID(), owner: h.owner, ...(h.creador ? { creador: h.creador } : {}), titulo: "", mensajes: [m],
+      recordatorio: { ...rec, texto, mensajeId: m.id, desde: ahora }, hechoFechas: [],
+      origenId: h.id, origenTitulo: h.titulo || (h.mensajes[0]?.texto || "").slice(0, 70), creadoEn: ahora, actualizadoEn: ahora,
+    };
+    h.cerrado = true; h.cerradoEn = ahora; h.cerradoPor = req.user.username; h.derivadoId = nuevo.id;
+    h.recordatorio = null; h.hechoFechas = []; h.actualizadoEn = ahora;
+    await upsertItem(COLECCION_NOTAS, nuevo.id, nuevo);
+    await upsertItem(COLECCION_NOTAS, h.id, h);
+    return res.status(201).json({ derivado: true, hilo: h, nuevo });
+  }
   h.mensajes.push(m);
-  // El recordatorio vigente del hilo es el del último mensaje que lo pidió; uno nuevo reemplaza al anterior.
-  if (rec) { h.recordatorio = { ...rec, texto, mensajeId: m.id, desde: ahora }; h.hechoFechas = []; }
   h.actualizadoEn = ahora;
   await upsertItem(COLECCION_NOTAS, h.id, h);
   res.status(201).json(h);
@@ -845,6 +858,7 @@ app.put("/api/notas/:id", requireAuth, soloOficina, asyncRoute(async (req, res) 
   const b = req.body || {};
   if (typeof b.titulo === "string") h.titulo = b.titulo.trim().slice(0, 120);
   if (b.quitarRecordatorio) h.recordatorio = null;
+  if (b.reabrir) { h.cerrado = false; h.cerradoEn = null; h.cerradoPor = null; }
   h.actualizadoEn = new Date().toISOString();
   await upsertItem(COLECCION_NOTAS, h.id, h);
   res.json(h);

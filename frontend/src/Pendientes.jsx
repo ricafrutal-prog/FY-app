@@ -92,7 +92,9 @@ export default function Pendientes() {
       <VistaHilo
         hilo={hilo} error={error} guardando={guardando} soloLectura={hilo.owner !== getUsername()}
         onVolver={() => { setAbierto(null); setError(""); }}
-        onAgregar={async (texto, recordatorio) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (h) { reemplazar(h); return true; } return false; }}
+        onAgregar={async (texto, recordatorio) => { const d = await llamar(`/api/notas/${hilo.id}/mensajes`, "POST", { texto, recordatorio }); if (!d) return false; if (d.derivado) { reemplazar(d.nuevo); reemplazar(d.hilo); } else reemplazar(d); return true; }}
+        onAbrirOrigen={() => { setAbierto(hilo.derivadoId); setError(""); }}
+        onReabrir={async () => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { reabrir: true }); if (h) reemplazar(h); }}
         onTitulo={async (titulo) => { const h = await llamar(`/api/notas/${hilo.id}`, "PUT", { titulo }); if (h) reemplazar(h); }}
         onHecho={async (mid, hecho) => { const h = await llamar(`/api/notas/${hilo.id}/mensajes/${mid}`, "PUT", { hecho }); if (h) reemplazar(h); }}
         onEliminarMensaje={async (mid, texto) => { if (!window.confirm(`¿Eliminar solo este comentario?\n\n“${texto.length > 120 ? `${texto.slice(0, 120)}…` : texto}”\n\nEl resto del pendiente se queda. No se puede deshacer.`)) return; const h = await llamar(`/api/notas/${hilo.id}/mensajes/${mid}`, "DELETE"); if (h) reemplazar(h); }}
@@ -102,7 +104,7 @@ export default function Pendientes() {
     );
   }
 
-  const ordenados = [...hilos].sort((a, b) => b.actualizadoEn.localeCompare(a.actualizadoEn));
+  const ordenados = [...hilos].sort((a, b) => (a.cerrado ? 1 : 0) - (b.cerrado ? 1 : 0) || b.actualizadoEn.localeCompare(a.actualizadoEn));
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
@@ -125,8 +127,9 @@ export default function Pendientes() {
           return (
             <button key={h.id} onClick={() => { setAbierto(h.id); setError(""); }} style={{ textAlign: "left", background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: "14px 18px", cursor: "pointer", fontFamily: "inherit", display: "block", width: "100%" }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-                <div style={{ fontWeight: 700, fontSize: 14, color: C.ink }}>{tituloDe(h)}</div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: h.cerrado ? C.muted : C.ink, textDecoration: h.cerrado ? "line-through" : "none" }}>{tituloDe(h)}</div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {h.cerrado && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: C.muted, background: C.lineSoft || "#F0EEE8", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}><Check size={11} /> Terminado</span>}
                   {h.owner !== getUsername() && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.warn, background: "#FBF1DC", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}>Enviado a {bonito(h.owner)}</span>}
                   {h.creador && h.owner === getUsername() && <span style={{ fontSize: 10.5, fontWeight: 700, color: C.warn, background: "#FBF1DC", borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}>Asignado por {bonito(h.creador)}</span>}
                   {h.recordatorio && h.owner === getUsername() && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10.5, fontWeight: 700, color: C.brand, background: C.brandSoft, borderRadius: 99, padding: "3px 9px", whiteSpace: "nowrap" }}><Bell size={11} /> Recordatorio {textoDias(h.recordatorio.dias)}</span>}
@@ -171,7 +174,7 @@ function NuevoHilo({ onGuardar, onCancelar, guardando, personas = [] }) {
   );
 }
 
-function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAgregar, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
+function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAgregar, onAbrirOrigen, onReabrir, onTitulo, onHecho, onEliminarMensaje, onQuitarRec, onEliminar }) {
   const [texto, setTexto] = useState("");
   const [rec, setRec] = useState(null);
   const [titulo, setTitulo] = useState(hilo.titulo || "");
@@ -181,11 +184,21 @@ function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAg
     <div>
       <button onClick={onVolver} style={{ background: "none", border: "none", color: C.brand, fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 4, marginBottom: 12 }}><ChevronLeft size={14} /> Pendientes</button>
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 6 }}>
-        <input readOnly={soloLectura} spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={titulo} onChange={(e) => setTitulo(e.target.value)} onBlur={() => titulo.trim() !== (hilo.titulo || "") && onTitulo(titulo)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={120} placeholder={tituloDe(hilo)} style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, fontWeight: 600, border: "none", borderBottom: `1px dashed ${C.line}`, outline: "none", background: "transparent", color: C.ink, flex: 1, minWidth: 220, padding: "2px 0" }} />
+        <input readOnly={soloLectura} spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={titulo} onChange={(e) => setTitulo(e.target.value)} onBlur={() => titulo.trim() !== (hilo.titulo || "") && onTitulo(titulo)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} maxLength={120} placeholder={tituloDe(hilo)} style={{ fontFamily: "'Bricolage Grotesque', sans-serif", fontSize: 24, fontWeight: 600, border: "none", borderBottom: `1px dashed ${C.line}`, outline: "none", background: "transparent", color: hilo.cerrado ? C.muted : C.ink, textDecoration: hilo.cerrado ? "line-through" : "none", flex: 1, minWidth: 220, padding: "2px 0" }} />
         <button onClick={onEliminar} title="Eliminar pendiente" style={{ ...boton("#fff", C.bad, `1px solid ${C.line}`), display: "inline-flex", alignItems: "center", gap: 5 }}><Trash2 size={14} /> Eliminar</button>
       </div>
       <div style={{ fontSize: 11.5, color: C.muted, marginBottom: 16 }}>Creado el {fechaHora(hilo.creadoEn)}{soloLectura ? "" : " · toca el título para ponerle o cambiarle el nombre."}</div>
       {soloLectura && <div style={{ background: "#FBF1DC", color: C.warn, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, marginBottom: 16 }}>Se lo mandaste a {bonito(hilo.owner)}. Aquí ves cómo lo va actualizando; él es quien agrega comentarios y lo marca como hecho.</div>}
+      {hilo.cerrado && (
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#F0EEE8", border: `1px solid ${C.line}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: C.ink }}><Check size={13} color={C.brand} style={{ verticalAlign: "-2px", marginRight: 6 }} /><strong>Este pendiente terminó{hilo.cerradoEn ? ` el ${fechaHora(hilo.cerradoEn)}` : ""}.</strong>{hilo.derivadoId ? " Lo último que escribiste quedó como un recordatorio diario aparte." : ""}</div>
+          {!soloLectura && <div style={{ display: "flex", gap: 8 }}>
+            {hilo.derivadoId && <button onClick={onAbrirOrigen} style={{ ...boton("#fff", C.brand, `1px solid ${C.brand}`), display: "inline-flex", alignItems: "center", gap: 5 }}><Bell size={13} /> Ver el recordatorio</button>}
+            <button onClick={onReabrir} style={boton("#fff", C.ink, `1px solid ${C.line}`)}>Reabrir</button>
+          </div>}
+        </div>
+      )}
+      {hilo.origenId && !hilo.cerrado && <div style={{ fontSize: 12, color: C.muted, marginBottom: 14 }}>Salió del pendiente “{hilo.origenTitulo || "anterior"}”, que ya terminó.</div>}
       {!soloLectura && hilo.creador && <div style={{ background: "#FBF1DC", color: C.warn, borderRadius: 10, padding: "10px 14px", fontSize: 12.5, fontWeight: 600, marginBottom: 16 }}>Te lo asignó {bonito(hilo.creador)}, y puede ver cómo lo vas actualizando.</div>}
 
       {hilo.recordatorio && !soloLectura && (
@@ -217,7 +230,7 @@ function VistaHilo({ hilo, error, guardando, soloLectura = false, onVolver, onAg
         ))}
       </div>
 
-      {!soloLectura && <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, display: "grid", gap: 12 }}>
+      {!soloLectura && !hilo.cerrado && <div style={{ background: "#fff", border: `1px solid ${C.line}`, borderRadius: 12, padding: 16, display: "grid", gap: 12 }}>
         <div style={{ fontWeight: 700, fontSize: 13.5 }}>Agregar comentario</div>
         <textarea spellCheck lang="es" autoCorrect="on" autoCapitalize="sentences" value={texto} onChange={(e) => setTexto(e.target.value)} rows={3} maxLength={2000} placeholder="Escribe cómo va este pendiente…" style={{ ...campo, resize: "vertical" }} />
         <OpcionRecordatorio valor={rec} onChange={setRec} />
